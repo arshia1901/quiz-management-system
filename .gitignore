@@ -1,4 +1,21 @@
-node_modules
+# dependencies
+node_modules/
+client/node_modules/
+server/node_modules/
+
+# environment files
 .env
+client/.env
+server/.env
+
+# build output
+dist/
+client/dist/
+server/dist/
+
+# macOS
 .DS_Store
-dist
+
+# logs
+*.log
+npm-debug.log*
