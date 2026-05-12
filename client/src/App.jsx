@@ -486,6 +486,25 @@ const handleCreateQuiz = () => {
 
   setShowCreate(false);
 };
+const handleDeleteQuiz = (quizId) => {
+  const confirmDelete = window.confirm("Are you sure you want to delete this quiz?");
+
+  if (!confirmDelete) return;
+
+  setQuizzes((prev) => prev.filter((quiz) => quiz.id !== quizId));
+};
+const handleDuplicateQuiz = (quizToDuplicate) => {
+  const duplicatedQuiz = {
+    ...quizToDuplicate,
+    id: Date.now(),
+    title: `${quizToDuplicate.title} Copy`,
+    status: "draft",
+    attempts: 0,
+    avgScore: 0,
+  };
+
+  setQuizzes((prev) => [duplicatedQuiz, ...prev]);
+};
 
   return (
     <div className="fade-in">
@@ -637,8 +656,18 @@ const handleCreateQuiz = () => {
               <div className="flex gap-2 mt-3">
                 <button className="btn btn-ghost btn-sm flex-1"><Icon name="edit" size={12} /> Edit</button>
                 <button className="btn btn-ghost btn-sm flex-1"><Icon name="chart" size={12} /> Results</button>
-                <button className="btn btn-ghost btn-sm btn-icon"><Icon name="copy" size={12} /></button>
-                <button className="btn btn-danger btn-sm btn-icon"><Icon name="trash" size={12} /></button>
+                <button
+                className="btn btn-ghost btn-sm btn-icon"
+                onClick={() => handleDuplicateQuiz(q)}
+              >
+                <Icon name="copy" size={12} />
+              </button>
+                <button
+                  className="btn btn-danger btn-sm btn-icon"
+                  onClick={() => handleDeleteQuiz(q.id)}
+                >
+                  <Icon name="trash" size={12} />
+                </button>
               </div>
             </div>
           </div>
