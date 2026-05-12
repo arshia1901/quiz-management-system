@@ -11,7 +11,9 @@ import {
   saveToStorage,
   removeFromStorage,
 } from "./utils/storage";
+import Editor from "@monaco-editor/react";
 
+import axios from "axios";
 
 
 
@@ -786,156 +788,327 @@ function QuestionPool() {
 
 // ─── Coding Interface ──────────────────────────────────────────────────────────
 function CodingInterface() {
+
+  const [question, setQuestion] = useState(null);
   const [lang, setLang] = useState("python");
-  const [code, setCode] = useState(CODE_TEMPLATE);
+  const [code, setCode] = useState("");
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
-  const [testResults, setTestResults] = useState([]);
   const [activeTab, setActiveTab] = useState("output");
+  const [customInput, setCustomInput] = useState("");
+  const [verdict, setVerdict] = useState("");
+  const [testResults, setTestResults] = useState([]);
+  const [timeLeft, setTimeLeft] = useState(5400);
+  const [warnings, setWarnings] = useState(0);
 
-  const lines = code.split("\n").length;
+  const [leftWidth, setLeftWidth] = useState(45);
+  const isDragging = useRef(false);
 
-  const runCode = () => {
-    setRunning(true);
-    setOutput("");
-    setTimeout(() => {
-      setOutput("[0, 1]\n[1, 2]\n\nExecution time: 0.03ms | Memory: 14.2MB");
-      setTestResults([
-        { id: 1, name: "Basic test", input: "[2,7,11,15], 9", expected: "[0,1]", got: "[0,1]", pass: true, time: "0.01ms" },
-        { id: 2, name: "Duplicate values", input: "[3,2,4], 6", expected: "[1,2]", got: "[1,2]", pass: true, time: "0.01ms" },
-        { id: 3, name: "Negative numbers", input: "[-1,-2,-3,-4], -7", expected: "[2,3]", got: "[2,3]", pass: true, time: "0.01ms" },
-        { id: 4, name: "Hidden test #1", input: "••••", expected: "••••", got: "••••", pass: true, time: "0.02ms" },
-        { id: 5, name: "Hidden test #2", input: "••••", expected: "••••", got: "••••", pass: true, time: "0.02ms" },
-      ]);
-      setRunning(false);
-    }, 1200);
+  // ---------------- FETCH QUESTION ----------------
+  useEffect(() => {
+    axios.get("http://localhost:5000/question")
+      .then(res => {
+        const q = res.data;
+        setQuestion(q);
+        setCode(q?.starterCode?.python || "");
+      })
+      .catch(err => console.log(err));
+  }, []);
+
+  // ---------------- TIMER ----------------
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setTimeLeft(prev => prev > 0 ? prev - 1 : 0);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, []);
+
+  // ---------------- CHEATING DETECTION ----------------
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        setWarnings(prev => prev + 1);
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
+
+  // ---------------- RESIZE ----------------
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      if (!isDragging.current) return;
+
+      const newWidth = (e.clientX / window.innerWidth) * 100;
+
+      if (newWidth >= 25 && newWidth <= 75) {
+        setLeftWidth(newWidth);
+      }
+    };
+
+    const stopDrag = () => {
+      isDragging.current = false;
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", stopDrag);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", stopDrag);
+    };
+  }, []);
+
+  // ---------------- HELPERS ----------------
+  const formatTime = (secs) => {
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+
+    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
   };
 
+  // ---------------- LANGUAGE SWITCH ----------------
+  const handleLanguageChange = (language) => {
+    setLang(language);
+    setCode(question?.starterCode?.[language] || "");
+  };
+
+  // ---------------- RUN CODE ----------------
+  const runCode = async () => {
+    if (!code?.trim()) {
+      setOutput("No code to run");
+      return;
+    }
+
+    setRunning(true);
+    setVerdict("");
+    setOutput("");
+
+    try {
+      const res = await axios.post("http://localhost:5000/run", {
+        code,
+        language: lang,
+        customInput
+      });
+
+      setVerdict(res.data?.verdict || "");
+      setOutput(res.data?.output || "");
+      setTestResults(res.data?.testResults || []);
+
+    } catch (err) {
+      console.log(err);
+      setOutput("Error running code");
+    }
+
+    setRunning(false);
+  };
+
+  // ---------------- LOADING ----------------
+  if (!question) {
+    return <div style={{ padding: 40 }}>Loading Question...</div>;
+  }
+
+  // ---------------- UI ----------------
   return (
     <div className="fade-in" style={{ height: "calc(100vh - 100px)" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", height: "100%", gap: 0, border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden" }}>
-        {/* Problem Panel */}
-        <div style={{ borderRight: "1px solid var(--border)", overflowY: "auto", background: "var(--bg2)" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 10 }}>
-            <span className="badge badge-green">Easy</span>
-            <span style={{ fontWeight: 600, color: "var(--text)" }}>Two Sum</span>
-            <span className="badge badge-blue" style={{ marginLeft: "auto" }}>Array · Hash Map</span>
+
+      <div style={{ display: "flex", height: "100%" }}>
+
+        {/* LEFT PANEL */}
+        <div style={{
+          width: `${leftWidth}%`,
+          borderRight: "1px solid var(--border)",
+          overflowY: "auto",
+          background: "var(--bg2)"
+        }}>
+
+          <div style={{
+            padding: "16px 20px",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 10
+          }}>
+            <span className="badge badge-green">{question.difficulty}</span>
+            <span style={{ fontWeight: 600 }}>{question.title}</span>
+            <span className="badge badge-blue" style={{ marginLeft: "auto" }}>
+              {question.topic}
+            </span>
           </div>
+
           <div style={{ padding: 20 }}>
-            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 16, lineHeight: 1.8 }}>
-              Given an array of integers <code style={{ background: "var(--bg3)", padding: "1px 5px", borderRadius: 4, fontFamily: "var(--mono)", color: "var(--accent2)" }}>nums</code> and an integer <code style={{ background: "var(--bg3)", padding: "1px 5px", borderRadius: 4, fontFamily: "var(--mono)", color: "var(--accent2)" }}>target</code>, return indices of the two numbers such that they add up to target.
-            </p>
-            <p style={{ fontSize: 13, color: "var(--text2)", marginBottom: 20, lineHeight: 1.8 }}>
-              You may assume that each input would have exactly one solution, and you may not use the same element twice.
-            </p>
+            <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+              <span className="badge badge-purple">
+                ⏱ {formatTime(timeLeft)}
+              </span>
 
-            <div style={{ background: "var(--bg3)", borderRadius: "var(--radius)", padding: 14, marginBottom: 16, fontSize: 12, fontFamily: "var(--mono)" }}>
-              <div className="text-faint mb-2" style={{ fontSize: 11, fontFamily: "var(--sans)", fontWeight: 600 }}>CONSTRAINTS</div>
-              <div style={{ color: "var(--text2)", lineHeight: 2 }}>
-                2 ≤ nums.length ≤ 10⁴<br />
-                -10⁹ ≤ nums[i] ≤ 10⁹<br />
-                -10⁹ ≤ target ≤ 10⁹<br />
-                Only one valid answer exists.
-              </div>
+              <span className="badge badge-red">
+                Warnings: {warnings}
+              </span>
             </div>
 
-            <div className="text-faint mb-2" style={{ fontSize: 11, fontWeight: 600 }}>SAMPLE I/O</div>
-            {[
-              { input: "nums = [2,7,11,15], target = 9", output: "[0,1]", note: "nums[0] + nums[1] = 2 + 7 = 9" },
-              { input: "nums = [3,2,4], target = 6", output: "[1,2]" },
-            ].map((ex, i) => (
-              <div key={i} style={{ background: "var(--bg3)", borderRadius: "var(--radius)", padding: 12, marginBottom: 10, fontSize: 12, fontFamily: "var(--mono)" }}>
-                <div style={{ color: "var(--text3)", marginBottom: 4 }}>Example {i + 1}:</div>
-                <div style={{ color: "var(--text2)" }}>Input: {ex.input}</div>
-                <div style={{ color: "var(--green)" }}>Output: {ex.output}</div>
-                {ex.note && <div style={{ color: "var(--text3)", marginTop: 4 }}>// {ex.note}</div>}
-              </div>
-            ))}
-
-            <div className="text-faint mb-2 mt-4" style={{ fontSize: 11, fontWeight: 600 }}>TEST CASES</div>
-            <div style={{ display: "flex", gap: 8 }}>
-              <span className="badge badge-blue">5 Public</span>
-              <span className="badge badge-purple">10 Hidden</span>
-            </div>
+            <p style={{
+              fontSize: 13,
+              lineHeight: 1.8,
+              color: "var(--text2)"
+            }}>
+              {question.description}
+            </p>
           </div>
         </div>
 
-        {/* Editor + Output Panel */}
-        <div style={{ display: "flex", flexDirection: "column", background: "var(--bg)" }}>
-          <div style={{ padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
-            <select className="select" value={lang} onChange={e => setLang(e.target.value)} style={{ fontSize: 12, padding: "4px 8px" }}>
-              <option value="python">Python 3</option>
+        {/* RESIZE HANDLE */}
+        <div
+          onMouseDown={() => isDragging.current = true}
+          style={{
+            width: "5px",
+            cursor: "col-resize",
+            background: "var(--border)"
+          }}
+        />
+
+        {/* RIGHT PANEL */}
+        <div style={{
+          width: `${100 - leftWidth}%`,
+          display: "flex",
+          flexDirection: "column",
+          height: "100%",
+          background: "var(--bg)"
+        }}>
+
+          {/* TOP BAR */}
+          <div style={{
+            padding: "8px 12px",
+            background: "var(--bg2)",
+            borderBottom: "1px solid var(--border)",
+            display: "flex",
+            alignItems: "center",
+            gap: 8
+          }}>
+
+            <select
+              className="select"
+              value={lang}
+              onChange={e => handleLanguageChange(e.target.value)}
+            >
+              <option value="python">Python</option>
               <option value="cpp">C++17</option>
               <option value="java">Java 17</option>
               <option value="c">C99</option>
             </select>
+
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
-              <button className="btn btn-secondary btn-sm" onClick={runCode} disabled={running}>
-                {running ? <span className="ai-loading"><span className="ai-dot"/><span className="ai-dot"/><span className="ai-dot"/></span> : <><Icon name="play" size={12} /> Run</>}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={runCode}
+                disabled={running}
+              >
+                {running ? "Running..." : "Run"}
               </button>
-              <button className="btn btn-primary btn-sm" onClick={runCode}><Icon name="send" size={12} /> Submit</button>
+
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={runCode}
+              >
+                Submit
+              </button>
             </div>
           </div>
 
-          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex" }}>
-              <div style={{ padding: "16px 8px", color: "var(--text3)", fontFamily: "var(--mono)", fontSize: 12, lineHeight: 1.7, textAlign: "right", borderRight: "1px solid var(--border)", userSelect: "none", minWidth: 44 }}>
-                {Array.from({ length: lines }, (_, i) => <div key={i}>{i + 1}</div>)}
-              </div>
-              <textarea
-                value={code}
-                onChange={e => setCode(e.target.value)}
-                style={{ flex: 1, background: "transparent", border: "none", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 13, padding: "16px", resize: "none", lineHeight: 1.7, outline: "none" }}
-                spellCheck={false}
-              />
+          {/* EDITOR */}
+          <div style={{ flex: 1 }}>
+            <Editor
+              height="100%"
+              language={lang}
+              value={code}
+              onChange={(value) => setCode(value || "")}
+              theme="vs-dark"
+              options={{
+                fontSize: 14,
+                minimap: { enabled: false },
+                automaticLayout: true
+              }}
+            />
+          </div>
+
+          {/* OUTPUT PANEL */}
+          <div style={{
+            height: 260,
+            borderTop: "1px solid var(--border)",
+            background: "var(--bg2)"
+          }}>
+
+            <div style={{
+              display: "flex",
+              gap: 6,
+              padding: 12,
+              borderBottom: "1px solid var(--border)"
+            }}>
+
+              {["output","tests","custom"].map(tab => (
+                <button
+                  key={tab}
+                  className={`tab ${activeTab === tab ? "active" : ""}`}
+                  onClick={() => setActiveTab(tab)}
+                >
+                  {tab}
+                </button>
+              ))}
+
+              {verdict && (
+                <span className={`badge ${verdict === "Accepted" ? "badge-green" : "badge-red"}`}
+                  style={{ marginLeft: "auto" }}>
+                  {verdict}
+                </span>
+              )}
+
             </div>
 
-            <div style={{ height: 220, borderTop: "1px solid var(--border)", background: "var(--bg2)", display: "flex", flexDirection: "column" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 2, padding: "6px 12px", borderBottom: "1px solid var(--border)" }}>
-                {["output", "tests", "custom"].map(t => (
-                  <button key={t} className={`tab ${activeTab === t ? "active" : ""}`} style={{ padding: "4px 10px", fontSize: 11 }} onClick={() => setActiveTab(t)}>
-                    {t === "output" ? "Output" : t === "tests" ? `Test Cases (${testResults.filter(r => r.pass).length}/${testResults.length})` : "Custom Input"}
-                  </button>
-                ))}
-                {testResults.length > 0 && (
-                  <span className="badge badge-green" style={{ marginLeft: "auto" }}>
-                    ✓ {testResults.filter(r => r.pass).length}/{testResults.length} passed
-                  </span>
-                )}
-              </div>
-              <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
-                {activeTab === "output" && (
-                  <pre style={{ fontFamily: "var(--mono)", fontSize: 12, color: "var(--green)", lineHeight: 1.7 }}>
-                    {output || <span style={{ color: "var(--text3)" }}>Run your code to see output...</span>}
-                  </pre>
-                )}
-                {activeTab === "tests" && testResults.map(r => (
-                  <div key={r.id} className={`test-case ${r.pass ? "test-case-pass" : "test-case-fail"}`}>
-                    <div className="flex items-center justify-between">
-                      <span style={{ fontSize: 12, fontWeight: 600, color: r.pass ? "var(--green)" : "var(--red)" }}>
-                        {r.pass ? "✓" : "✗"} {r.name}
-                      </span>
-                      <span className="text-xs text-faint">{r.time}</span>
-                    </div>
-                    {r.input !== "••••" && (
-                      <div style={{ fontFamily: "var(--mono)", fontSize: 11, color: "var(--text3)", marginTop: 4 }}>
-                        Input: {r.input} → {r.got}
-                      </div>
-                    )}
+            <div style={{ padding: 12, overflowY: "auto", height: "calc(100% - 50px)" }}>
+
+              {activeTab === "output" && (
+                <pre style={{ fontFamily: "var(--mono)", fontSize: 12 }}>
+                  {output || "Run your code to see output..."}
+                </pre>
+              )}
+
+              {activeTab === "tests" && (testResults || []).map(r => (
+                <div key={r.id} style={{
+                  background: r.pass ? "rgba(0,255,0,0.08)" : "rgba(255,0,0,0.08)",
+                  padding: 12,
+                  borderRadius: 8,
+                  marginBottom: 10
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <span>{r.pass ? "✓" : "✗"} Test Case {r.id}</span>
+                    <span>{r.time}</span>
                   </div>
-                ))}
-                {activeTab === "custom" && (
-                  <textarea className="input" style={{ height: "100%", resize: "none", fontFamily: "var(--mono)", fontSize: 12 }} placeholder="Enter custom input..." />
-                )}
-              </div>
+                </div>
+              ))}
+
+              {activeTab === "custom" && (
+                <textarea
+                  className="input"
+                  value={customInput}
+                  onChange={e => setCustomInput(e.target.value)}
+                  style={{ width: "100%", height: 100 }}
+                />
+              )}
+
             </div>
+
           </div>
+
         </div>
+
       </div>
+
     </div>
   );
 }
-
 // ─── Quiz Attempt Interface ────────────────────────────────────────────────────
 function QuizAttempt() {
   const [current, setCurrent] = useState(0);
