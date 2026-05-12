@@ -6,6 +6,11 @@ import {
   SAMPLE_QUESTIONS,
   CODE_TEMPLATE,
 } from "./data/sampleData";
+import {
+  getFromStorage,
+  saveToStorage,
+  removeFromStorage,
+} from "./utils/storage";
 
 
 
@@ -1323,11 +1328,17 @@ function Notifications() {
 
 // ─── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [authed, setAuthed] = useState(false);
-  const [role, setRole] = useState("teacher");
+  const [authed, setAuthed] = useState(() => getFromStorage("authed", false));
+  const [role, setRole] = useState(() => getFromStorage("role", "student"));
   const [page, setPage] = useState("dashboard");
 
-  const handleLogin = (r) => { setRole(r); setAuthed(true); };
+  const handleLogin = (r) => {
+  setRole(r);
+  setAuthed(true);
+  saveToStorage("role", r);
+  saveToStorage("authed", true);
+  setPage("dashboard");
+};
 
   if (!authed) return <AuthScreen onLogin={handleLogin} />;
 
@@ -1369,9 +1380,17 @@ export default function App() {
               <button className="btn btn-ghost btn-icon btn-sm" onClick={() => setPage("notifications")}>
                 <Icon name="bell" size={15} />
               </button>
-              <button className="btn btn-ghost btn-sm" onClick={() => setAuthed(false)}>
-                <Icon name="logout" size={14} /> Sign out
-              </button>
+              <button
+  className="btn btn-ghost btn-sm"
+  onClick={() => {
+    setAuthed(false);
+    removeFromStorage("authed");
+    removeFromStorage("role");
+    setPage("dashboard");
+  }}
+>
+  <Icon name="logout" size={14} /> Sign out
+</button>
             </div>
           </div>
           <div className="content">
