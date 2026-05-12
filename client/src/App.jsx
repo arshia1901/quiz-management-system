@@ -238,7 +238,7 @@ function Sidebar({ role, page, setPage }) {
 }
 
 // ─── Teacher Dashboard ─────────────────────────────────────────────────────────
-function TeacherDashboard() {
+function TeacherDashboard({quizzes}) {
   const weekData = [
     { label: "Mon", value: 45, color: "var(--accent)" },
     { label: "Tue", value: 72, color: "var(--accent)" },
@@ -321,7 +321,7 @@ function TeacherDashboard() {
             </tr>
           </thead>
           <tbody>
-            {SAMPLE_QUIZZES.map(q => (
+            {quizzes.map(q => (
               <tr key={q.id}>
                 <td><span style={{ fontWeight: 500, color: "var(--text)" }}>{q.title}</span></td>
                 <td><span className="badge badge-gray">{q.subject}</span></td>
@@ -346,7 +346,7 @@ function TeacherDashboard() {
 }
 
 // ─── Student Dashboard ─────────────────────────────────────────────────────────
-function StudentDashboard({ setPage }) {
+function StudentDashboard({ setPage, quizzes }) {
   const scores = [
     { label: "DS", value: 82 }, { label: "Algo", value: 67 }, { label: "DB", value: 91 },
     { label: "OS", value: 54 }, { label: "CN", value: 78 },
@@ -387,7 +387,7 @@ function StudentDashboard({ setPage }) {
 
         <div className="card">
           <div className="section-title" style={{ fontSize: 16, marginBottom: 16 }}>Upcoming Quizzes</div>
-          {SAMPLE_QUIZZES.filter(q => q.status === "live").map(q => (
+          {quizzes.filter(q => q.status === "live").map(q => (
             <div key={q.id} className="flex items-center gap-3 mb-3 p-3 rounded" style={{ background: "var(--bg3)" }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 500 }}>{q.title}</div>
@@ -426,9 +426,66 @@ function StudentDashboard({ setPage }) {
 }
 
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
-function QuizManager() {
+function QuizManager({quizzes, setQuizzes}) {
   const [showCreate, setShowCreate] = useState(false);
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
+const [newQuiz, setNewQuiz] = useState({
+  title: "",
+  subject: "",
+  duration: "",
+  totalMarks: "",
+  availableFrom: "",
+  availableUntil: "",
+  instructions: "",
+});
+const handleQuizInputChange = (field, value) => {
+  setNewQuiz((prev) => ({
+    ...prev,
+    [field]: value,
+  }));
+};
+
+const handleCreateQuiz = () => {
+  if (!newQuiz.title.trim() || !newQuiz.subject.trim()) {
+    alert("Please enter quiz title and subject.");
+    return;
+  }
+
+  const quizToAdd = {
+    id: Date.now(),
+    title: newQuiz.title,
+    subject: newQuiz.subject,
+    questions: 0,
+    duration: Number(newQuiz.duration) || 30,
+    status: "draft",
+    difficulty: "medium",
+    attempts: 0,
+    avgScore: 0,
+    window:
+      newQuiz.availableFrom && newQuiz.availableUntil
+        ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
+            newQuiz.availableUntil
+          ).toLocaleDateString()}`
+        : "Not scheduled",
+    totalMarks: Number(newQuiz.totalMarks) || 0,
+    instructions: newQuiz.instructions,
+    settings,
+  };
+
+  setQuizzes((prev) => [quizToAdd, ...prev]);
+
+  setNewQuiz({
+    title: "",
+    subject: "",
+    duration: "",
+    totalMarks: "",
+    availableFrom: "",
+    availableUntil: "",
+    instructions: "",
+  });
+
+  setShowCreate(false);
+};
 
   return (
     <div className="fade-in">
@@ -449,32 +506,71 @@ function QuizManager() {
           <div className="grid-2 mb-4">
             <div className="form-group">
               <label className="form-label">Quiz Title</label>
-              <input className="input" placeholder="e.g. Data Structures Midterm" />
+              <input
+                  className="input"
+                  placeholder="e.g. CNS Lab CIE Quiz"
+                  value={newQuiz.title}
+                  onChange={(e) => handleQuizInputChange("title", e.target.value)}
+                />
             </div>
             <div className="form-group">
-              <label className="form-label">Subject / Course</label>
-              <input className="input" placeholder="e.g. CS201" />
+              <label className="form-label">Subject / Course Code</label>
+              <input
+                className="input"
+                placeholder="e.g. CS201"
+                value={newQuiz.subject}
+                onChange={(e) => handleQuizInputChange("subject", e.target.value)}
+               />
             </div>
             <div className="form-group">
               <label className="form-label">Duration (minutes)</label>
-              <input className="input" type="number" placeholder="45" />
+              <input
+              className="input"
+              type="number"
+              placeholder="45"
+              value={newQuiz.duration}
+              onChange={(e) => handleQuizInputChange("duration", e.target.value)}
+            />
             </div>
             <div className="form-group">
               <label className="form-label">Total Marks</label>
-              <input className="input" type="number" placeholder="100" />
+              <input
+              className="input"
+              type="number"
+              placeholder="100"
+              value={newQuiz.totalMarks}
+              onChange={(e) => handleQuizInputChange("totalMarks", e.target.value)}
+            />
             </div>
             <div className="form-group">
               <label className="form-label">Available From</label>
-              <input className="input" type="datetime-local" />
+              <input
+              className="input"
+              type="datetime-local"
+              value={newQuiz.availableFrom}
+              onChange={(e) => handleQuizInputChange("availableFrom", e.target.value)}
+            />
             </div>
             <div className="form-group">
               <label className="form-label">Available Until</label>
-              <input className="input" type="datetime-local" />
+              <input
+              className="input"
+              type="datetime-local"
+              value={newQuiz.availableUntil}
+              onChange={(e) => handleQuizInputChange("availableUntil", e.target.value)}
+            />
             </div>
           </div>
           <div className="form-group mb-4">
             <label className="form-label">Instructions</label>
-            <textarea className="input" rows={3} placeholder="Add quiz instructions for students..." style={{ resize: "vertical" }} />
+            <textarea
+            className="input"
+            rows={3}
+            placeholder="Add quiz instructions for students..."
+            style={{ resize: "vertical" }}
+            value={newQuiz.instructions}
+            onChange={(e) => handleQuizInputChange("instructions", e.target.value)}
+          />
           </div>
 
           <div className="section-title" style={{ fontSize: 14, marginBottom: 12 }}>Anti-Cheating & Settings</div>
@@ -501,15 +597,23 @@ function QuizManager() {
             ))}
           </div>
 
-          <div className="flex gap-2">
-            <button className="btn btn-primary">Save Quiz</button>
-            <button className="btn btn-secondary" onClick={() => setShowCreate(false)}>Cancel</button>
-          </div>
+          <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
+  <button
+    className="btn btn-secondary"
+    onClick={() => setShowCreate(false)}
+  >
+    Cancel
+  </button>
+
+  <button className="btn btn-primary" onClick={handleCreateQuiz}>
+    <Icon name="check" size={14} /> Create Quiz
+  </button>
+</div>
         </div>
       )}
 
       <div className="grid-2">
-        {SAMPLE_QUIZZES.map(q => (
+        {quizzes.map(q => (
           <div key={q.id} className="quiz-card">
             <div className="quiz-card-header">
               <div className="flex items-center justify-between mb-2">
@@ -1331,6 +1435,12 @@ export default function App() {
   const [authed, setAuthed] = useState(() => getFromStorage("authed", false));
   const [role, setRole] = useState(() => getFromStorage("role", "student"));
   const [page, setPage] = useState("dashboard");
+  const [quizzes, setQuizzes] = useState(() =>
+  getFromStorage("quizzes", SAMPLE_QUIZZES)
+);
+useEffect(() => {
+  saveToStorage("quizzes", quizzes);
+}, [quizzes]);
 
   const handleLogin = (r) => {
   setRole(r);
@@ -1349,19 +1459,69 @@ export default function App() {
   };
 
   const renderPage = () => {
-    switch (page) {
-      case "dashboard": return role === "teacher" ? <TeacherDashboard /> : <StudentDashboard setPage={setPage} />;
-      case "classrooms": return <Classrooms role={role} />;
-      case "quizzes": return role === "teacher" ? <QuizManager /> : <div className="fade-in"><div className="section-title mb-4">My Quizzes</div>{SAMPLE_QUIZZES.filter(q => q.status === "live").map(q => <div key={q.id} className="quiz-card mb-3"><div className="quiz-card-header"><div className="quiz-card-title">{q.title}</div><div className="quiz-card-meta"><StatusBadge status={q.status} /><span className="badge badge-gray">{q.duration}min</span></div></div><div className="quiz-card-body"><button className="btn btn-primary btn-sm" onClick={() => setPage("attempt")}>Start Quiz →</button></div></div>)}</div>;
-      case "questions": return <QuestionPool />;
-      case "coding": return <CodingInterface />;
-      case "ai": return <AIGenerator />;
-      case "analytics": return <Analytics role={role} />;
-      case "notifications": return <Notifications />;
-      case "attempt": return <QuizAttempt />;
-      default: return null;
-    }
-  };
+  switch (page) {
+    case "dashboard":
+      return role === "teacher" ? (
+        <TeacherDashboard quizzes={quizzes} />
+      ) : (
+        <StudentDashboard setPage={setPage} quizzes={quizzes} />
+      );
+
+    case "classrooms":
+      return <Classrooms role={role} />;
+
+    case "quizzes":
+      return role === "teacher" ? (
+        <QuizManager quizzes={quizzes} setQuizzes={setQuizzes} />
+      ) : (
+        <div className="fade-in">
+          <div className="section-title mb-4">My Quizzes</div>
+          {quizzes
+            .filter((q) => q.status === "live")
+            .map((q) => (
+              <div key={q.id} className="quiz-card mb-3">
+                <div className="quiz-card-header">
+                  <div className="quiz-card-title">{q.title}</div>
+                  <div className="quiz-card-meta">
+                    <StatusBadge status={q.status} />
+                    <span className="badge badge-gray">{q.duration}min</span>
+                  </div>
+                </div>
+                <div className="quiz-card-body">
+                  <button
+                    className="btn btn-primary btn-sm"
+                    onClick={() => setPage("attempt")}
+                  >
+                    Start Quiz →
+                  </button>
+                </div>
+              </div>
+            ))}
+        </div>
+      );
+
+    case "questions":
+      return <QuestionPool />;
+
+    case "coding":
+      return <CodingInterface />;
+
+    case "ai":
+      return <AIGenerator />;
+
+    case "analytics":
+      return <Analytics role={role} />;
+
+    case "notifications":
+      return <Notifications />;
+
+    case "attempt":
+      return <QuizAttempt />;
+
+    default:
+      return null;
+  }
+};
 
   return (
     <>
