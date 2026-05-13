@@ -445,6 +445,13 @@ function QuizManager({quizzes, setQuizzes}) {
   evaluationMode: "manual",
   imageData: "",
   imageName: "",
+  problemTitle: "",
+  problemDescription: "",
+  constraints: "",
+  sampleInput: "",
+  sampleOutput: "",
+  starterCode: "",
+  testCases: "",
 });
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
 const [newQuiz, setNewQuiz] = useState({
@@ -590,6 +597,18 @@ const openQuestionForm = (type) => {
   evaluationMode: "short" ? "nlp" : "manual",
   imageData: "",
   imageName: "",
+  problemTitle: "",
+  problemDescription: "",
+  constraints: "",
+  sampleInput: "",
+  sampleOutput: "",
+  starterCode:
+    type === "coding"
+      ? `function solve(input) {
+  // Write your code here
+}`
+      : "",
+  testCases: "",
 });
 };
 
@@ -668,6 +687,22 @@ const handleAddQuestionToQuiz = () => {
     return;
   }
 }
+if (newQuestion.type === "coding") {
+  if (!newQuestion.problemTitle.trim()) {
+    alert("Please enter the problem title.");
+    return;
+  }
+
+  if (!newQuestion.problemDescription.trim()) {
+    alert("Please enter the problem description.");
+    return;
+  }
+
+  if (!newQuestion.sampleInput.trim() || !newQuestion.sampleOutput.trim()) {
+    alert("Please enter sample input and sample output.");
+    return;
+  }
+}
 
   const questionToAdd = {
     id: Date.now(),
@@ -699,6 +734,18 @@ const handleAddQuestionToQuiz = () => {
   evaluationMode: questionType === "short" ? "nlp" : "manual",
   imageData: "",
   imageName: "",
+  problemTitle: "",
+  problemDescription: "",
+  constraints: "",
+  sampleInput: "",
+  sampleOutput: "",
+  starterCode:
+    questionType === "coding"
+      ? `function solve(input) {
+  // Write your code here
+}`
+      : "",
+  testCases: "",
 });
 
   setQuestionType(null);
@@ -1003,8 +1050,101 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
     </div>
   </div>
 )}
+{questionType === "coding" && (
+  <div className="mb-3">
+    <div className="form-group mb-3">
+      <label className="form-label">Problem Title</label>
+      <input
+        className="input"
+        placeholder="e.g. Two Sum"
+        value={newQuestion.problemTitle}
+        onChange={(e) => handleQuestionChange("problemTitle", e.target.value)}
+      />
+    </div>
 
-    {questionType !== "mcq" && questionType !== "short" && (
+    <div className="form-group mb-3">
+      <label className="form-label">Problem Description</label>
+      <textarea
+        className="input"
+        rows={4}
+        placeholder="Describe the problem clearly..."
+        style={{ resize: "vertical" }}
+        value={newQuestion.problemDescription}
+        onChange={(e) => handleQuestionChange("problemDescription", e.target.value)}
+      />
+    </div>
+
+    <div className="form-group mb-3">
+      <label className="form-label">Constraints</label>
+      <textarea
+        className="input"
+        rows={2}
+        placeholder="e.g. 1 <= n <= 10^5"
+        style={{ resize: "vertical" }}
+        value={newQuestion.constraints}
+        onChange={(e) => handleQuestionChange("constraints", e.target.value)}
+      />
+    </div>
+
+    <div className="grid-2 mb-3">
+      <div className="form-group">
+        <label className="form-label">Sample Input</label>
+        <textarea
+          className="input"
+          rows={3}
+          placeholder="Example input"
+          style={{ resize: "vertical" }}
+          value={newQuestion.sampleInput}
+          onChange={(e) => handleQuestionChange("sampleInput", e.target.value)}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Sample Output</label>
+        <textarea
+          className="input"
+          rows={3}
+          placeholder="Expected output"
+          style={{ resize: "vertical" }}
+          value={newQuestion.sampleOutput}
+          onChange={(e) => handleQuestionChange("sampleOutput", e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div className="form-group mb-3">
+      <label className="form-label">Starter Code</label>
+      <textarea
+        className="input"
+        rows={5}
+        style={{ resize: "vertical", fontFamily: "monospace" }}
+        value={newQuestion.starterCode}
+        onChange={(e) => handleQuestionChange("starterCode", e.target.value)}
+      />
+    </div>
+
+    <div className="form-group">
+      <label className="form-label">Hidden/Public Test Cases</label>
+      <textarea
+        className="input"
+        rows={4}
+        placeholder={`Example:
+Input: 2 7 11 15 | 9
+Output: 0 1
+
+Input: 3 2 4 | 6
+Output: 1 2`}
+        style={{ resize: "vertical", fontFamily: "monospace" }}
+        value={newQuestion.testCases}
+        onChange={(e) => handleQuestionChange("testCases", e.target.value)}
+      />
+      <div className="text-xs text-faint mt-1">
+        For now, test cases are stored as text. Later they can be parsed and sent to Judge0/backend.
+      </div>
+    </div>
+  </div>
+)}
+    {questionType !== "mcq" && questionType !== "short" && questionType !== "coding" && (
   <div className="text-sm text-faint mb-3">
     This question type UI will be added next.
   </div>
@@ -1057,11 +1197,16 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
   )}
 
   <div className="text-sm font-semibold">
-    Q{index + 1}. {question.questionText}
+    Q{index + 1}. {question.type === "coding" ? question.problemTitle : question.questionText}
   </div>
 
   <div className="text-xs text-faint mt-1">
     {question.type.toUpperCase()} • {question.topic || "No topic"} • {question.marks} mark(s)
+    {question.type === "coding" && (
+  <div className="text-xs text-faint mt-1">
+    Sample: {question.sampleInput || "No sample input"} → {question.sampleOutput || "No sample output"}
+  </div>
+)}
     {question.type === "short" && question.evaluationMode
       ? ` • ${question.evaluationMode === "nlp" ? "NLP Assisted" : "Manual Review"}`
       : ""}
