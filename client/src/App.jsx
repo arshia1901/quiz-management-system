@@ -3020,37 +3020,61 @@ useEffect(() => {
   );
 
     case "quizzes":
-      return role === "teacher" ? (
-        <QuizManager quizzes={quizzes} setQuizzes={setQuizzes} batches={batches} />
+  return role === "teacher" ? (
+    <QuizManager
+      quizzes={quizzes}
+      setQuizzes={setQuizzes}
+      batches={batches}
+    />
+  ) : (
+    <div className="fade-in">
+      <div className="section-title mb-4">My Quizzes</div>
+
+      {quizzes.filter(
+        (q) => q.status === "live" && q.batchId === currentUser?.batchId
+      ).length === 0 ? (
+        <div className="card">
+          <div className="text-sm text-faint">
+            No live quizzes assigned to your batch yet.
+          </div>
+        </div>
       ) : (
-        <div className="fade-in">
-          <div className="section-title mb-4">My Quizzes</div>
-          {quizzes
-            .filter((q) => q.status === "live")
-            .map((q) => (
-              <div key={q.id} className="quiz-card mb-3">
-                <div className="quiz-card-header">
-                  <div className="quiz-card-title">{q.title}</div>
-                  <div className="quiz-card-meta">
-                    <StatusBadge status={q.status} />
-                    <span className="badge badge-gray">{q.duration}min</span>
-                  </div>
-                </div>
-                <div className="quiz-card-body">
-                  <button
-                    className="btn btn-primary btn-sm"
-                    onClick={() => setPage("attempt")}
-                  >
-                    Start Quiz →
-                  </button>
+        quizzes
+          .filter(
+            (q) => q.status === "live" && q.batchId === currentUser?.batchId
+          )
+          .map((q) => (
+            <div key={q.id} className="quiz-card mb-3">
+              <div className="quiz-card-header">
+                <div className="quiz-card-title">{q.title}</div>
+
+                <div className="quiz-card-meta">
+                  <StatusBadge status={q.status} />
+
+                  {q.batchName && (
+                    <span className="badge badge-blue">{q.batchName}</span>
+                  )}
+
+                  <span className="badge badge-gray">{q.duration}min</span>
                 </div>
               </div>
-            ))}
-        </div>
-      );
 
-    case "questions":
-      return <QuestionPool />;
+              <div className="quiz-card-body">
+                <button
+                  className="btn btn-primary btn-sm"
+                  onClick={() => setPage("attempt")}
+                >
+                  Start Quiz →
+                </button>
+              </div>
+            </div>
+          ))
+      )}
+    </div>
+  );
+
+case "questions":
+  return <QuestionPool />;
 
    case "coding":
   return <CodingInterface quizzes={quizzes} />;
