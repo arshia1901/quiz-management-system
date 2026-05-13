@@ -447,7 +447,7 @@ function StudentDashboard({ setPage, quizzes, currentUser }) {
 }
 
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
-function QuizManager({quizzes, setQuizzes}) {
+function QuizManager({quizzes, setQuizzes, batches}) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
 
@@ -476,6 +476,8 @@ function QuizManager({quizzes, setQuizzes}) {
 const [newQuiz, setNewQuiz] = useState({
   title: "",
   subject: "",
+  batchId: "",
+  batchName: "",
   duration: "",
   totalMarks: "",
   availableFrom: "",
@@ -492,6 +494,8 @@ const resetQuizForm = () => {
   setNewQuiz({
     title: "",
     subject: "",
+    batchId: "",
+    batchName: "",
     duration: "",
     totalMarks: "",
     availableFrom: "",
@@ -516,6 +520,8 @@ const handleCreateQuiz = () => {
               ...quiz,
               title: newQuiz.title,
               subject: newQuiz.subject,
+              batchId: newQuiz.batchId,
+batchName: newQuiz.batchName,
               duration: Number(newQuiz.duration) || 30,
               totalMarks: Number(newQuiz.totalMarks) || 0,
               availableFrom: newQuiz.availableFrom,
@@ -537,6 +543,8 @@ const handleCreateQuiz = () => {
       id: Date.now(),
       title: newQuiz.title,
       subject: newQuiz.subject,
+      batchId: newQuiz.batchId,
+batchName: newQuiz.batchName,
       questions: 0,
       duration: Number(newQuiz.duration) || 30,
       status: "draft",
@@ -568,6 +576,8 @@ const handleEditQuiz = (quiz) => {
   setNewQuiz({
     title: quiz.title || "",
     subject: quiz.subject || "",
+    batchId: quiz.batchId || "",
+  batchName: quiz.batchName || "",
     duration: quiz.duration || "",
     totalMarks: quiz.totalMarks || "",
     availableFrom: quiz.availableFrom || "",
@@ -830,6 +840,29 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
                 onChange={(e) => handleQuizInputChange("subject", e.target.value)}
                />
             </div>
+            <div className="form-group">
+  <label className="form-label">Assign to Batch</label>
+  <select
+    className="input"
+    value={newQuiz.batchId}
+    onChange={(e) => {
+      const selectedBatch = batches.find((batch) => batch.id === e.target.value);
+
+      setNewQuiz((prev) => ({
+        ...prev,
+        batchId: selectedBatch?.id || "",
+        batchName: selectedBatch?.name || "",
+      }));
+    }}
+  >
+    <option value="">Select batch</option>
+    {batches.map((batch) => (
+      <option key={batch.id} value={batch.id}>
+        {batch.name} - {batch.subject}
+      </option>
+    ))}
+  </select>
+</div>
             <div className="form-group">
               <label className="form-label">Duration (minutes)</label>
               <input
@@ -1282,11 +1315,19 @@ Output: 1 2`}
                 <DiffBadge diff={q.difficulty} />
               </div>
               <div className="quiz-card-title">{q.title}</div>
-              <div className="quiz-card-meta">
-                <span className="badge badge-gray">{q.subject}</span>
-                <span className="badge badge-gray"><Icon name="clock" size={10} /> {q.duration}min</span>
-                <span className="badge badge-gray">{q.questions} Qs</span>
-              </div>
+<div className="quiz-card-meta">
+  <span className="badge badge-gray">{q.subject}</span>
+
+  {q.batchName && (
+    <span className="badge badge-blue">{q.batchName}</span>
+  )}
+
+  <span className="badge badge-gray">
+    <Icon name="clock" size={10} /> {q.duration}min
+  </span>
+
+  <span className="badge badge-gray">{q.questions} Qs</span>
+</div>
             </div>
             <div className="quiz-card-body">
               <div className="text-xs text-faint mb-3">📅 {q.window}</div>
@@ -2980,7 +3021,7 @@ useEffect(() => {
 
     case "quizzes":
       return role === "teacher" ? (
-        <QuizManager quizzes={quizzes} setQuizzes={setQuizzes} />
+        <QuizManager quizzes={quizzes} setQuizzes={setQuizzes} batches={batches} />
       ) : (
         <div className="fade-in">
           <div className="section-title mb-4">My Quizzes</div>
