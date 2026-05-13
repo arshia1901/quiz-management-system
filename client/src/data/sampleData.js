@@ -46,6 +46,35 @@ export const SAMPLE_USERS = [
     batchId: "batch-cse-a",
   },
 ];
+export const SAMPLE_BATCHES = [
+  {
+    id: "batch-ise-a",
+    name: "ISE A",
+    department: "Information Science and Engineering",
+    semester: "4th Semester",
+    academicYear: "2025-2026",
+    subject: "Data Structures and Algorithms",
+    students: ["stu-ise-a-1"],
+  },
+  {
+    id: "batch-ise-b",
+    name: "ISE B",
+    department: "Information Science and Engineering",
+    semester: "4th Semester",
+    academicYear: "2025-2026",
+    subject: "Operating Systems",
+    students: ["stu-ise-b-1"],
+  },
+  {
+    id: "batch-cse-a",
+    name: "CSE A",
+    department: "Computer Science and Engineering",
+    semester: "5th Semester",
+    academicYear: "2025-2026",
+    subject: "Database Management Systems",
+    students: ["stu-cse-a-1"],
+  },
+];
 
 export const NOTIFS = [
   { id: 1, type: "quiz", title: "New quiz assigned: Data Structures", time: "2m ago", read: false, icon: "📋" },

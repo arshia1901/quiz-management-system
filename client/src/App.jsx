@@ -3,6 +3,7 @@ import {
   SAMPLE_QUIZZES,
   SAMPLE_STUDENTS,
   SAMPLE_USERS,
+  SAMPLE_BATCHES,
   NOTIFS,
   SAMPLE_QUESTIONS,
   CODE_TEMPLATE,
@@ -2388,70 +2389,478 @@ function Analytics({ role }) {
 }
 
 // ─── Classrooms ────────────────────────────────────────────────────────────────
-function Classrooms({ role }) {
-  const [joinCode, setJoinCode] = useState("");
-  const colors = ["linear-gradient(135deg,#6c63ff,#a855f7)", "linear-gradient(135deg,#22d3a0,#4da6ff)", "linear-gradient(135deg,#f5a623,#ff5c5c)", "linear-gradient(135deg,#ec4899,#a855f7)"];
+function Classrooms({ role, batches, setBatches, users, setUsers, quizzes }) {
+  const [showCreate, setShowCreate] = useState(false);
+  const [newBatch, setNewBatch] = useState({
+    name: "",
+    department: "",
+    semester: "",
+    academicYear: "",
+    subject: "",
+  });
+  const [showStudentForm, setShowStudentForm] = useState(false);
+const [newStudent, setNewStudent] = useState({
+  name: "",
+  email: "",
+  password: "student123",
+  batchId: "",
+});
 
-  const classes = [
-    { id: 1, name: "Data Structures", code: "DS-2024", students: 48, quizzes: 6, instructor: "Prof. Sharma" },
-    { id: 2, name: "Algorithm Design", code: "ALGO-101", students: 36, quizzes: 4, instructor: "Prof. Kumar" },
-    { id: 3, name: "Database Systems", code: "DB-201", students: 52, quizzes: 8, instructor: "Prof. Reddy" },
-  ];
+  const studentUsers = users.filter((user) => user.role === "student");
+
+  const handleBatchInputChange = (field, value) => {
+    setNewBatch((prev) => ({
+      ...prev,
+      [field]: value,
+    }));
+  };
+
+  const handleCreateBatch = () => {
+    if (!newBatch.name.trim() || !newBatch.department.trim()) {
+      alert("Please enter batch name and department.");
+      return;
+    }
+
+    const batchToAdd = {
+      id: `batch-${Date.now()}`,
+      name: newBatch.name,
+      department: newBatch.department,
+      semester: newBatch.semester || "Not specified",
+      academicYear: newBatch.academicYear || "Not specified",
+      subject: newBatch.subject || "Not assigned",
+      students: [],
+    };
+
+    setBatches((prev) => [batchToAdd, ...prev]);
+
+    setNewBatch({
+      name: "",
+      department: "",
+      semester: "",
+      academicYear: "",
+      subject: "",
+    });
+
+    setShowCreate(false);
+  };
+
+const handleStudentInputChange = (field, value) => {
+  setNewStudent((prev) => ({
+    ...prev,
+    [field]: value,
+  }));
+};
+
+const handleAddStudent = () => {
+  
+  if (!newStudent.name.trim() || !newStudent.email.trim()) {
+    alert("Please enter student name and email.");
+    return;
+  }
+
+  const emailExists = users.some(
+    (user) => user.email.toLowerCase() === newStudent.email.trim().toLowerCase()
+  );
+
+  if (emailExists) {
+    alert("A user with this email already exists.");
+    return;
+  }
+
+  const studentToAdd = {
+    id: `stu-${Date.now()}`,
+    name: newStudent.name,
+    email: newStudent.email,
+    password: newStudent.password || "student123",
+    role: "student",
+    batchId: newStudent.batchId || "",
+  };
+
+  setUsers((prev) => [...prev, studentToAdd]);
+
+  setNewStudent({
+    name: "",
+    email: "",
+    password: "student123",
+    batchId: "",
+  });
+
+  setShowStudentForm(false);
+};
+
+const handleAssignStudentToBatch = (studentId, batchId) => {
+  setUsers((prev) =>
+    prev.map((user) =>
+      user.id === studentId
+        ? {
+            ...user,
+            batchId,
+          }
+        : user
+    )
+  );
+};
+
+const handleRemoveStudentFromBatch = (studentId) => {
+  setUsers((prev) =>
+    prev.map((user) =>
+      user.id === studentId
+        ? {
+            ...user,
+            batchId: "",
+          }
+        : user
+    )
+  );
+};
+
+const handleDeleteStudent = (studentId) => {
+  if (!confirm("Delete this student account?")) return;
+
+  setUsers((prev) => prev.filter((user) => user.id !== studentId));
+};
+
+  const handleDeleteBatch = (batchId) => {
+    const hasQuizzes = quizzes.some((quiz) => quiz.batchId === batchId);
+
+    if (hasQuizzes) {
+      alert("This batch has quizzes assigned. Remove/reassign those quizzes first.");
+      return;
+    }
+
+    if (!confirm("Delete this batch?")) return;
+
+    setBatches((prev) => prev.filter((batch) => batch.id !== batchId));
+  };
+
+  const getBatchStudents = (batchId) =>
+    studentUsers.filter((student) => student.batchId === batchId);
+
+  const getBatchQuizCount = (batchId) =>
+    quizzes.filter((quiz) => quiz.batchId === batchId).length;
 
   return (
     <div className="fade-in">
       <div className="section-head mb-6">
         <div>
-          <div className="section-title">Classrooms</div>
-          <div className="section-subtitle">{role === "teacher" ? "Manage your classes" : "Your enrolled classes"}</div>
-        </div>
-        {role === "teacher"
-          ? <button className="btn btn-primary"><Icon name="plus" size={14} /> Create Classroom</button>
-          : <div className="flex gap-2">
-              <input className="input" placeholder="Enter invite code" value={joinCode} onChange={e => setJoinCode(e.target.value)} style={{ width: 160 }} />
-              <button className="btn btn-primary btn-sm">Join</button>
-            </div>
-        }
-      </div>
-
-      <div className="grid-3">
-        {classes.map((c, i) => (
-          <div key={c.id} className="classroom-card card-hover">
-            <div className="classroom-banner" style={{ background: colors[i % colors.length] }}>
-              <div style={{ position: "absolute", top: 10, right: 10 }}>
-                <span style={{ background: "rgba(0,0,0,0.3)", borderRadius: 6, padding: "2px 8px", fontSize: 11, fontFamily: "var(--mono)", color: "white" }}>{c.code}</span>
-              </div>
-              <div style={{ fontFamily: "var(--serif)", fontWeight: 600, fontSize: 16, color: "white" }}>{c.name}</div>
-            </div>
-            <div className="classroom-info">
-              <div className="flex gap-3 mb-3">
-                <div className="stat-card flex-1" style={{ padding: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 20, fontWeight: 600 }}>{c.students}</div>
-                  <div className="text-xs text-faint">Students</div>
-                </div>
-                <div className="stat-card flex-1" style={{ padding: 10, textAlign: "center" }}>
-                  <div style={{ fontSize: 20, fontWeight: 600 }}>{c.quizzes}</div>
-                  <div className="text-xs text-faint">Quizzes</div>
-                </div>
-              </div>
-              <div className="text-xs text-faint mb-3">{c.instructor}</div>
-              <div className="flex gap-2">
-                <button className="btn btn-secondary btn-sm flex-1">View</button>
-                {role === "teacher" && <button className="btn btn-ghost btn-sm"><Icon name="settings" size={12} /></button>}
-              </div>
-            </div>
+          <div className="section-title">Batch Management</div>
+          <div className="section-subtitle">
+            Create and manage college batches/classes for quiz assignment
           </div>
-        ))}
+        </div>
 
         {role === "teacher" && (
-          <div className="classroom-card" style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 200, border: "1px dashed var(--border2)", cursor: "pointer" }}>
-            <div style={{ textAlign: "center", color: "var(--text3)" }}>
-              <Icon name="plus" size={28} style={{ margin: "0 auto 8px", display: "block" }} />
-              <div style={{ fontSize: 13 }}>New Classroom</div>
+  <div className="flex gap-2">
+    <button
+      className="btn btn-secondary"
+      onClick={() => setShowStudentForm(!showStudentForm)}
+    >
+      <Icon name="user" size={14} /> Add Student
+    </button>
+
+    <button
+      className="btn btn-primary"
+      onClick={() => setShowCreate(!showCreate)}
+    >
+      <Icon name="plus" size={14} /> Create Batch
+    </button>
+  </div>
+)}
+      </div>
+
+      {showCreate && role === "teacher" && (
+        <div className="card mb-6">
+          <div className="section-title" style={{ fontSize: 16, marginBottom: 16 }}>
+            Create New Batch
+          </div>
+
+          <div className="grid-2 mb-3">
+            <div className="form-group">
+              <label className="form-label">Batch Name</label>
+              <input
+                className="input"
+                placeholder="e.g. ISE A"
+                value={newBatch.name}
+                onChange={(e) => handleBatchInputChange("name", e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Department</label>
+              <input
+                className="input"
+                placeholder="e.g. Information Science and Engineering"
+                value={newBatch.department}
+                onChange={(e) =>
+                  handleBatchInputChange("department", e.target.value)
+                }
+              />
             </div>
           </div>
+
+          <div className="grid-2 mb-3">
+            <div className="form-group">
+              <label className="form-label">Semester</label>
+              <input
+                className="input"
+                placeholder="e.g. 4th Semester"
+                value={newBatch.semester}
+                onChange={(e) => handleBatchInputChange("semester", e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Academic Year</label>
+              <input
+                className="input"
+                placeholder="e.g. 2024-2025"
+                value={newBatch.academicYear}
+                onChange={(e) =>
+                  handleBatchInputChange("academicYear", e.target.value)
+                }
+              />
+            </div>
+          </div>
+
+          <div className="form-group mb-4">
+            <label className="form-label">Subject</label>
+            <input
+              className="input"
+              placeholder="e.g. Data Structures and Algorithms"
+              value={newBatch.subject}
+              onChange={(e) => handleBatchInputChange("subject", e.target.value)}
+            />
+          </div>
+
+          <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
+            <button
+              className="btn btn-secondary"
+              onClick={() => setShowCreate(false)}
+            >
+              Cancel
+            </button>
+
+            <button className="btn btn-primary" onClick={handleCreateBatch}>
+              <Icon name="check" size={14} /> Save Batch
+            </button>
+          </div>
+        </div>
+      )}
+      {showStudentForm && role === "teacher" && (
+  <div className="card mb-6">
+    <div className="section-title" style={{ fontSize: 16, marginBottom: 16 }}>
+      Add Student
+    </div>
+
+    <div className="grid-2 mb-3">
+      <div className="form-group">
+        <label className="form-label">Student Name</label>
+        <input
+          className="input"
+          placeholder="e.g. Riya Sharma"
+          value={newStudent.name}
+          onChange={(e) => handleStudentInputChange("name", e.target.value)}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Email</label>
+        <input
+          className="input"
+          placeholder="e.g. riya.is23a@rvce.edu.in"
+          value={newStudent.email}
+          onChange={(e) => handleStudentInputChange("email", e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div className="grid-2 mb-4">
+      <div className="form-group">
+        <label className="form-label">Default Password</label>
+        <input
+          className="input"
+          value={newStudent.password}
+          onChange={(e) => handleStudentInputChange("password", e.target.value)}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Assign Batch</label>
+        <select
+          className="input"
+          value={newStudent.batchId}
+          onChange={(e) => handleStudentInputChange("batchId", e.target.value)}
+        >
+          <option value="">No batch yet</option>
+          {batches.map((batch) => (
+            <option key={batch.id} value={batch.id}>
+              {batch.name} - {batch.subject}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+
+    <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
+      <button
+        className="btn btn-secondary"
+        onClick={() => setShowStudentForm(false)}
+      >
+        Cancel
+      </button>
+
+      <button className="btn btn-primary" onClick={handleAddStudent}>
+        <Icon name="check" size={14} /> Save Student
+      </button>
+    </div>
+  </div>
+)}
+
+      <div className="grid-3">
+        {batches.map((batch) => {
+          const batchStudents = getBatchStudents(batch.id);
+          const quizCount = getBatchQuizCount(batch.id);
+
+          return (
+            <div key={batch.id} className="card">
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <div className="quiz-card-title">{batch.name}</div>
+                  <div className="text-xs text-faint">{batch.semester}</div>
+                </div>
+
+                <span className="badge badge-blue">
+                  {batchStudents.length} students
+                </span>
+              </div>
+
+              <div className="text-sm mb-2">
+                <strong>Department:</strong> {batch.department}
+              </div>
+
+              <div className="text-sm mb-2">
+                <strong>Subject:</strong> {batch.subject}
+              </div>
+
+              <div className="text-sm mb-2">
+                <strong>Academic Year:</strong> {batch.academicYear}
+              </div>
+
+              <div className="text-sm mb-4">
+                <strong>Assigned Quizzes:</strong> {quizCount}
+              </div>
+
+              <div className="mb-4">
+                <div className="text-xs text-faint mb-2">Students</div>
+
+                {batchStudents.length > 0 ? (
+  batchStudents.map((student) => (
+    <div
+      key={student.id}
+      className="text-sm mb-2"
+      style={{
+        padding: "8px",
+        borderRadius: 8,
+        background: "var(--bg2)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <div style={{ fontWeight: 600 }}>{student.name}</div>
+          <div className="text-xs text-faint">{student.email}</div>
+        </div>
+
+        {role === "teacher" && (
+          <button
+            className="btn btn-ghost btn-sm"
+            onClick={() => handleRemoveStudentFromBatch(student.id)}
+          >
+            Remove
+          </button>
         )}
       </div>
+    </div>
+  ))
+) : (
+  <div className="text-sm text-faint">No students assigned</div>
+)}
+              </div>
+
+              {role === "teacher" && (
+                <div className="flex gap-2">
+                  <button
+                    className="btn btn-danger btn-sm flex-1"
+                    onClick={() => handleDeleteBatch(batch.id)}
+                  >
+                    <Icon name="trash" size={12} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      {role === "teacher" && (
+        <div className="card mt-6">
+          <div className="section-title" style={{ fontSize: 16, marginBottom: 12 }}>
+            All Students
+          </div>
+
+          <div className="section-subtitle mb-4">
+            Assign students to batches or delete demo student accounts
+          </div>
+
+          {studentUsers.length > 0 ? (
+            studentUsers.map((student) => (
+              <div
+                key={student.id}
+                className="flex items-center justify-between mb-2"
+                style={{
+                  padding: "10px",
+                  borderRadius: 10,
+                  background: "var(--bg2)",
+                  border: "1px solid var(--border)",
+                }}
+              >
+                <div>
+                  <div className="text-sm" style={{ fontWeight: 600 }}>
+                    {student.name}
+                  </div>
+                  <div className="text-xs text-faint">{student.email}</div>
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <select
+                    className="input"
+                    style={{ minWidth: 220 }}
+                    value={student.batchId || ""}
+                    onChange={(e) =>
+                      handleAssignStudentToBatch(student.id, e.target.value)
+                    }
+                  >
+                    <option value="">No batch</option>
+                    {batches.map((batch) => (
+                      <option key={batch.id} value={batch.id}>
+                        {batch.name} - {batch.subject}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => handleDeleteStudent(student.id)}
+                  >
+                    <Icon name="trash" size={12} /> Delete
+                  </button>
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="text-sm text-faint">No students available.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2488,12 +2897,29 @@ export default function App() {
     getFromStorage("currentUser", null)
   );
   const [page, setPage] = useState("dashboard");
-  const [quizzes, setQuizzes] = useState(() =>
+
+const [quizzes, setQuizzes] = useState(() =>
   getFromStorage("quizzes", SAMPLE_QUIZZES)
 );
+
+const [batches, setBatches] = useState(() =>
+  getFromStorage("batches", SAMPLE_BATCHES)
+);
+
 useEffect(() => {
   saveToStorage("quizzes", quizzes);
 }, [quizzes]);
+
+useEffect(() => {
+  saveToStorage("batches", batches);
+}, [batches]);
+
+const [users, setUsers] = useState(() =>
+  getFromStorage("users", SAMPLE_USERS)
+);
+useEffect(() => {
+  saveToStorage("users", users);
+}, [users]);
 
   const handleLogin = (user) => {
   setCurrentUser(user);
@@ -2508,7 +2934,7 @@ useEffect(() => {
 };
 
   if (!authed) {
-  return <AuthScreen onLogin={handleLogin} users={SAMPLE_USERS} />;
+  return <AuthScreen onLogin={handleLogin} users={users} />;
 }
 
   const pageTitles = {
@@ -2536,7 +2962,16 @@ useEffect(() => {
         />
       );
     case "classrooms":
-      return <Classrooms role={role} />;
+  return (
+    <Classrooms
+      role={role}
+      batches={batches}
+      setBatches={setBatches}
+      users={users}
+      setUsers={setUsers}
+      quizzes={quizzes}
+    />
+  );
 
     case "quizzes":
       return role === "teacher" ? (
