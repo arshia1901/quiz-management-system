@@ -430,6 +430,7 @@ function StudentDashboard({ setPage, quizzes }) {
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
 function QuizManager({quizzes, setQuizzes}) {
   const [showCreate, setShowCreate] = useState(false);
+  const [editingQuizId, setEditingQuizId] = useState(null);
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
 const [newQuiz, setNewQuiz] = useState({
   title: "",
@@ -446,36 +447,7 @@ const handleQuizInputChange = (field, value) => {
     [field]: value,
   }));
 };
-
-const handleCreateQuiz = () => {
-  if (!newQuiz.title.trim() || !newQuiz.subject.trim()) {
-    alert("Please enter quiz title and subject.");
-    return;
-  }
-
-  const quizToAdd = {
-    id: Date.now(),
-    title: newQuiz.title,
-    subject: newQuiz.subject,
-    questions: 0,
-    duration: Number(newQuiz.duration) || 30,
-    status: "draft",
-    difficulty: "medium",
-    attempts: 0,
-    avgScore: 0,
-    window:
-      newQuiz.availableFrom && newQuiz.availableUntil
-        ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
-            newQuiz.availableUntil
-          ).toLocaleDateString()}`
-        : "Not scheduled",
-    totalMarks: Number(newQuiz.totalMarks) || 0,
-    instructions: newQuiz.instructions,
-    settings,
-  };
-
-  setQuizzes((prev) => [quizToAdd, ...prev]);
-
+const resetQuizForm = () => {
   setNewQuiz({
     title: "",
     subject: "",
@@ -486,7 +458,87 @@ const handleCreateQuiz = () => {
     instructions: "",
   });
 
+  setEditingQuizId(null);
+};
+
+const handleCreateQuiz = () => {
+  if (!newQuiz.title.trim() || !newQuiz.subject.trim()) {
+    alert("Please enter quiz title and subject.");
+    return;
+  }
+
+  if (editingQuizId) {
+    setQuizzes((prev) =>
+      prev.map((quiz) =>
+        quiz.id === editingQuizId
+          ? {
+              ...quiz,
+              title: newQuiz.title,
+              subject: newQuiz.subject,
+              duration: Number(newQuiz.duration) || 30,
+              totalMarks: Number(newQuiz.totalMarks) || 0,
+              availableFrom: newQuiz.availableFrom,
+              availableUntil: newQuiz.availableUntil,
+              window:
+                newQuiz.availableFrom && newQuiz.availableUntil
+                  ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
+                      newQuiz.availableUntil
+                    ).toLocaleDateString()}`
+                  : quiz.window || "Not scheduled",
+              instructions: newQuiz.instructions,
+              settings,
+            }
+          : quiz
+      )
+    );
+  } else {
+    const quizToAdd = {
+      id: Date.now(),
+      title: newQuiz.title,
+      subject: newQuiz.subject,
+      questions: 0,
+      duration: Number(newQuiz.duration) || 30,
+      status: "draft",
+      difficulty: "medium",
+      attempts: 0,
+      avgScore: 0,
+      availableFrom: newQuiz.availableFrom,
+      availableUntil: newQuiz.availableUntil,
+      window:
+        newQuiz.availableFrom && newQuiz.availableUntil
+          ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
+              newQuiz.availableUntil
+            ).toLocaleDateString()}`
+          : "Not scheduled",
+      totalMarks: Number(newQuiz.totalMarks) || 0,
+      instructions: newQuiz.instructions,
+      settings,
+    };
+
+    setQuizzes((prev) => [quizToAdd, ...prev]);
+  }
+
+  resetQuizForm();
   setShowCreate(false);
+};
+const handleEditQuiz = (quiz) => {
+  setEditingQuizId(quiz.id);
+
+  setNewQuiz({
+    title: quiz.title || "",
+    subject: quiz.subject || "",
+    duration: quiz.duration || "",
+    totalMarks: quiz.totalMarks || "",
+    availableFrom: quiz.availableFrom || "",
+    availableUntil: quiz.availableUntil || "",
+    instructions: quiz.instructions || "",
+  });
+
+  if (quiz.settings) {
+    setSettings(quiz.settings);
+  }
+
+  setShowCreate(true);
 };
 const handleDeleteQuiz = (quizId) => {
   const confirmDelete = window.confirm("Are you sure you want to delete this quiz?");
@@ -523,7 +575,9 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
 
       {showCreate && (
         <div className="card mb-6 fade-in">
-          <div className="section-title" style={{ fontSize: 16, marginBottom: 20 }}>New Quiz</div>
+          <div className="section-title" style={{ fontSize: 16, marginBottom: 20 }}>
+            {editingQuizId ? "Edit Quiz" : "New Quiz"}
+          </div>
           <div className="grid-2 mb-4">
             <div className="form-group">
               <label className="form-label">Quiz Title</label>
@@ -619,16 +673,19 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
           </div>
 
           <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
-  <button
-    className="btn btn-secondary"
-    onClick={() => setShowCreate(false)}
-  >
-    Cancel
-  </button>
+            <button
+            className="btn btn-secondary"
+            onClick={() => {
+              resetQuizForm();
+              setShowCreate(false);
+            }}
+          >
+            Cancel
+          </button>
 
   <button className="btn btn-primary" onClick={handleCreateQuiz}>
-    <Icon name="check" size={14} /> Create Quiz
-  </button>
+  <Icon name="check" size={14} /> {editingQuizId ? "Update Quiz" : "Create Quiz"}
+</button>
 </div>
         </div>
       )}
@@ -656,7 +713,12 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
                 <div className="quiz-stat"><div className="quiz-stat-value">3</div><div className="quiz-stat-label">Sections</div></div>
               </div>
               <div className="flex gap-2 mt-3">
-                <button className="btn btn-ghost btn-sm flex-1"><Icon name="edit" size={12} /> Edit</button>
+                <button
+                  className="btn btn-ghost btn-sm flex-1"
+                  onClick={() => handleEditQuiz(q)}
+                >
+                  <Icon name="edit" size={12} /> Edit
+                </button>
                 <button className="btn btn-ghost btn-sm flex-1"><Icon name="chart" size={12} /> Results</button>
                 <button
                 className="btn btn-ghost btn-sm btn-icon"
