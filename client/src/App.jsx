@@ -447,10 +447,11 @@ function StudentDashboard({ setPage, quizzes, currentUser }) {
 }
 
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
-function QuizManager({quizzes, setQuizzes, batches, attempts}) {
+function QuizManager({quizzes, setQuizzes, batches, attempts, setAttempts}) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
   const [resultsQuiz, setResultsQuiz] = useState(null);
+  const [selectedAttempt, setSelectedAttempt] = useState(null);
 
   const [questionType, setQuestionType] = useState(null);
   const [newQuestion, setNewQuestion] = useState({
@@ -817,6 +818,255 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
     })
   );
 };
+
+const getQuizQuestionsForResults = (quiz) => {
+  return (quiz?.questionList || []).map((question, index) => ({
+    id: question.id || index,
+    text: question.questionText || question.text || "Untitled question",
+    type: question.type || "mcq",
+    opts: question.options || question.opts || [],
+    correct: question.correctOption ?? question.correct,
+    marks: Number(question.marks) || 1,
+    topic: question.topic || "",
+    expectedAnswer: question.expectedAnswer || "",
+    keywords: question.keywords || "",
+    image:
+      question.image ||
+      question.imageData ||
+      question.imageUrl ||
+      question.imagePreview ||
+      question.questionImage ||
+      question.uploadedImage ||
+      null,
+  }));
+};
+
+const handleManualMarkChange = (attemptId, questionIndex, value) => {
+  const numericValue = Number(value);
+
+  setAttempts((prev) =>
+    prev.map((attempt) =>
+      attempt.id === attemptId
+        ? {
+            ...attempt,
+            manualMarks: {
+              ...(attempt.manualMarks || {}),
+              [questionIndex]: numericValue,
+            },
+          }
+        : attempt
+    )
+  );
+
+  setSelectedAttempt((prev) =>
+    prev && prev.id === attemptId
+      ? {
+          ...prev,
+          manualMarks: {
+            ...(prev.manualMarks || {}),
+            [questionIndex]: numericValue,
+          },
+        }
+      : prev
+  );
+};
+
+const handleSaveEvaluation = () => {
+  if (!selectedAttempt) return;
+
+  const manualScore = Object.values(selectedAttempt.manualMarks || {}).reduce(
+    (sum, mark) => sum + (Number(mark) || 0),
+    0
+  );
+
+  const finalScore = (selectedAttempt.score || 0) + manualScore;
+
+  const updatedAttempt = {
+    ...selectedAttempt,
+    manualScore,
+    finalScore,
+    evaluated: true,
+    evaluatedAt: new Date().toLocaleString(),
+  };
+
+  setAttempts((prev) =>
+    prev.map((attempt) =>
+      attempt.id === selectedAttempt.id ? updatedAttempt : attempt
+    )
+  );
+
+  setSelectedAttempt(updatedAttempt);
+
+  alert("Evaluation saved successfully.");
+};
+
+if (selectedAttempt && resultsQuiz) {
+  const resultQuestions = getQuizQuestionsForResults(resultsQuiz);
+
+  const manualScore = Object.values(selectedAttempt.manualMarks || {}).reduce(
+    (sum, mark) => sum + (Number(mark) || 0),
+    0
+  );
+
+  const finalScore = (selectedAttempt.score || 0) + manualScore;
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="section-title">Attempt Review</div>
+          <div className="section-subtitle">
+            {selectedAttempt.studentName} • {resultsQuiz.title}
+          </div>
+        </div>
+
+         <div className="flex gap-2">
+    <button className="btn btn-success" onClick={handleSaveEvaluation}>
+      Save Evaluation
+    </button>
+
+        <button
+          className="btn btn-secondary"
+          onClick={() => setSelectedAttempt(null)}
+        >
+          Back to Results
+        </button>
+      </div>
+      </div>
+
+      <div className="card mb-4">
+        <div className="grid-3">
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">
+              {selectedAttempt.score || 0}/{selectedAttempt.maxScore || 0}
+            </div>
+            <div className="quiz-stat-label">Auto Score</div>
+          </div>
+
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">{manualScore}</div>
+            <div className="quiz-stat-label">Manual Score</div>
+          </div>
+
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">
+              {finalScore}/{selectedAttempt.maxScore || 0}
+            </div>
+            <div className="quiz-stat-label">Final Score</div>
+          </div>
+        </div>
+      </div>
+
+      {resultQuestions.map((question, index) => {
+        const studentAnswer = selectedAttempt.answers?.[index];
+        const isMcq = question.type === "mcq";
+        const isCorrect = isMcq && studentAnswer === question.correct;
+
+        return (
+          <div key={question.id} className="card mb-3">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-sm" style={{ fontWeight: 700 }}>
+                  Q{index + 1}. {question.text}
+                </div>
+                <div className="text-xs text-faint mt-1">
+                  {question.type.toUpperCase()} • {question.marks} mark(s)
+                </div>
+              </div>
+
+              {isMcq && (
+                <span className={`badge ${isCorrect ? "badge-green" : "badge-red"}`}>
+                  {isCorrect ? "Correct" : "Wrong"}
+                </span>
+              )}
+            </div>
+
+            {question.image && (
+              <div
+                style={{
+                  background: "var(--bg3)",
+                  border: "1px solid var(--border)",
+                  borderRadius: "var(--radius)",
+                  padding: 12,
+                  marginBottom: 16,
+                }}
+              >
+                <img
+                  src={question.image}
+                  alt="Question reference"
+                  style={{
+                    width: "100%",
+                    maxHeight: 220,
+                    objectFit: "contain",
+                    borderRadius: 10,
+                    display: "block",
+                  }}
+                />
+              </div>
+            )}
+
+            {isMcq ? (
+              <div className="grid-2">
+                <div>
+                  <div className="form-label">Student Answer</div>
+                  <div className="text-sm">
+                    {studentAnswer !== undefined
+                      ? question.opts?.[studentAnswer]
+                      : "Not answered"}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="form-label">Correct Answer</div>
+                  <div className="text-sm">
+                    {question.opts?.[question.correct] || "Not set"}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <div className="form-label">Student Answer</div>
+                <div
+                  className="p-3 rounded mb-3"
+                  style={{
+                    background: "var(--bg2)",
+                    border: "1px solid var(--border)",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {studentAnswer || "Not answered"}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label">
+                    Manual Marks out of {question.marks}
+                  </label>
+                  <input
+                    className="input"
+                    type="number"
+                    min="0"
+                    max={question.marks}
+                    value={selectedAttempt.manualMarks?.[index] ?? ""}
+                    onChange={(e) =>
+                      handleManualMarkChange(
+                        selectedAttempt.id,
+                        index,
+                        e.target.value
+                      )
+                    }
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+
+
 if (resultsQuiz) {
   const quizAttempts = attempts.filter(
     (attempt) => attempt.quizId === resultsQuiz.id
@@ -875,15 +1125,31 @@ if (resultsQuiz) {
                 </div>
 
                 <div className="flex gap-2 items-center">
-                  <span className="badge badge-blue">
-                    {attempt.answeredCount}/{attempt.totalQuestions} answered
-                  </span>
+  <span className="badge badge-blue">
+    {attempt.answeredCount}/{attempt.totalQuestions} answered
+  </span>
+
+  <span className="badge badge-green">
+    Score: {attempt.score ?? 0}/{attempt.maxScore ?? 0}
+  </span>
+
+  {attempt.evaluated && (
+    <span className="badge badge-green">
+      Final: {attempt.finalScore}/{attempt.maxScore}
+    </span>
+  )}
 
                   {attempt.violations > 0 && (
                     <span className="badge badge-amber">
                       {attempt.violations} violation(s)
                     </span>
                   )}
+                  <button
+    className="btn btn-primary btn-sm"
+    onClick={() => setSelectedAttempt(attempt)}
+  >
+    Review
+  </button>
                 </div>
               </div>
             </div>
@@ -2215,6 +2481,26 @@ if (questions.length === 0) {
   const q = questions[current];
   console.log("Current question:", q);
 
+  const calculateScore = () => {
+  let score = 0;
+  let maxScore = 0;
+
+  questions.forEach((question, index) => {
+    const marks = Number(question.marks) || 1;
+    maxScore += marks;
+
+    if (question.type === "mcq") {
+      const studentAnswer = answers[index];
+
+      if (studentAnswer === question.correct) {
+        score += marks;
+      }
+    }
+  });
+
+  return { score, maxScore };
+};
+
   const handleSubmitQuiz = () => {
   const confirmSubmit = confirm(
     "Submit quiz? You cannot change answers after submitting."
@@ -2223,6 +2509,7 @@ if (questions.length === 0) {
   if (!confirmSubmit) return;
 
    const answeredCount = Object.keys(answers).length;
+   const { score, maxScore } = calculateScore();
 
   const attemptToSave = {
     id: Date.now(),
@@ -2235,6 +2522,8 @@ if (questions.length === 0) {
     answers,
     answeredCount,
     totalQuestions: questions.length,
+    score,
+  maxScore,
     violations,
     submittedAt: new Date().toLocaleString(),
   };
@@ -2252,6 +2541,7 @@ if (questions.length === 0) {
   };
   if (submitted) {
   const answeredCount = Object.keys(answers).length;
+  const { score, maxScore } = calculateScore();
 
   return (
     <div className="fade-in">
@@ -2262,7 +2552,7 @@ if (questions.length === 0) {
           Your responses have been recorded for this attempt.
         </div>
 
-        <div className="grid-3 mb-4">
+        <div className="grid-4 mb-4">
           <div className="quiz-stat">
             <div className="quiz-stat-value">{quiz.title}</div>
             <div className="quiz-stat-label">Quiz</div>
@@ -2274,6 +2564,13 @@ if (questions.length === 0) {
             </div>
             <div className="quiz-stat-label">Answered</div>
           </div>
+
+          <div className="quiz-stat">
+  <div className="quiz-stat-value">
+    {score}/{maxScore}
+  </div>
+  <div className="quiz-stat-label">Auto Score</div>
+</div>
 
           <div className="quiz-stat">
             <div className="quiz-stat-value">{violations}</div>
@@ -3354,6 +3651,7 @@ useEffect(() => {
       setQuizzes={setQuizzes}
       batches={batches}
       attempts={attempts}
+      setAttempts={setAttempts}
     />
   ) : (
     <div className="fade-in">
