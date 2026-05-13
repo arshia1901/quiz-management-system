@@ -9,10 +9,13 @@ import {
   CODE_TEMPLATE,
 } from "./data/sampleData";
 import {
-  getFromStorage,
-  saveToStorage,
-  removeFromStorage,
-} from "./utils/storage";
+  authAPI,
+  quizzesAPI,
+  questionsAPI,
+  batchesAPI,
+  usersAPI,
+  setToken
+} from "./api";
 import Editor from "@monaco-editor/react";
 
 import axios from "axios";
@@ -119,26 +122,16 @@ function AuthScreen({ onLogin, users=[] }) {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = () => {
+ const handleSubmit = async () => {
   setLoading(true);
-
-  setTimeout(() => {
-    const user = users.find(
-      (u) =>
-        u.email.toLowerCase() === email.trim().toLowerCase() &&
-        u.password === pass &&
-        u.role === role
-    );
-
-    if (!user) {
-      setLoading(false);
-      alert("Invalid email, password, or role.");
-      return;
-    }
-
-    setLoading(false);
-    onLogin(user);
-  }, 500);
+  try {
+    const res = await authAPI.login(email, pass, role.toUpperCase());
+    setToken(res.token);
+    onLogin({ ...res, role: res.role.toLowerCase() });
+  } catch (err) {
+    alert(err.message || "Invalid credentials");
+  }
+  setLoading(false);
 };
 
   return (
@@ -447,7 +440,22 @@ function StudentDashboard({ setPage, quizzes, currentUser }) {
 }
 
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
-function QuizManager({quizzes, setQuizzes, batches, attempts, setAttempts}) {
+
+const parseTestCasesFromText = (raw = "") => {
+  const blocks = raw.trim().split(/\n\s*\n/).filter(Boolean);
+  return blocks.map((block, i) => {
+    const inMatch  = block.match(/Input:\s*(.+?)(?=Output:|$)/si);
+    const outMatch = block.match(/Output:\s*(.+)/si);
+    return {
+      id: i + 1,
+      input: inMatch ? inMatch[1].trim() : "",
+      expected: outMatch ? outMatch[1].trim() : "",
+      hidden: true,
+    };
+  });
+};
+function QuizManager({quizzes, setQuizzes, batches, attempts, setAttempts, refreshQuizzes}) {
+
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
   const [resultsQuiz, setResultsQuiz] = useState(null);
@@ -508,82 +516,60 @@ const resetQuizForm = () => {
   setEditingQuizId(null);
 };
 
-const handleCreateQuiz = () => {
+const handleCreateQuiz = async () => {
   if (!newQuiz.title.trim() || !newQuiz.subject.trim()) {
     alert("Please enter quiz title and subject.");
     return;
   }
-
-  if (editingQuizId) {
-    setQuizzes((prev) =>
-      prev.map((quiz) =>
-        quiz.id === editingQuizId
-          ? {
-              ...quiz,
-              title: newQuiz.title,
-              subject: newQuiz.subject,
-              batchId: newQuiz.batchId,
-batchName: newQuiz.batchName,
-              duration: Number(newQuiz.duration) || 30,
-              totalMarks: Number(newQuiz.totalMarks) || 0,
-              availableFrom: newQuiz.availableFrom,
-              availableUntil: newQuiz.availableUntil,
-              window:
-                newQuiz.availableFrom && newQuiz.availableUntil
-                  ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
-                      newQuiz.availableUntil
-                    ).toLocaleDateString()}`
-                  : quiz.window || "Not scheduled",
-              instructions: newQuiz.instructions,
-              settings,
-            }
-          : quiz
-      )
-    );
-  } else {
-    const quizToAdd = {
-      id: Date.now(),
-      title: newQuiz.title,
-      subject: newQuiz.subject,
-      batchId: newQuiz.batchId,
-batchName: newQuiz.batchName,
-      questions: 0,
-      duration: Number(newQuiz.duration) || 30,
-      status: "draft",
-      difficulty: "medium",
-      attempts: 0,
-      avgScore: 0,
-      availableFrom: newQuiz.availableFrom,
-      availableUntil: newQuiz.availableUntil,
-      window:
-        newQuiz.availableFrom && newQuiz.availableUntil
-          ? `${new Date(newQuiz.availableFrom).toLocaleDateString()} – ${new Date(
-              newQuiz.availableUntil
-            ).toLocaleDateString()}`
-          : "Not scheduled",
-      totalMarks: Number(newQuiz.totalMarks) || 0,
-      instructions: newQuiz.instructions,
-      settings,
-    };
-
-    setQuizzes((prev) => [quizToAdd, ...prev]);
-  }
-
-  resetQuizForm();
-  setShowCreate(false);
+  const payload = {
+    title: newQuiz.title,
+    subject: newQuiz.subject,
+    batch_id: newQuiz.batchId || null,
+    duration: Number(newQuiz.duration) || 30,
+    total_marks: Number(newQuiz.totalMarks) || 0,
+    available_from: newQuiz.availableFrom || null,
+    available_until: newQuiz.availableUntil || null,
+    instructions: newQuiz.instructions,
+    settings,
+  };
+  try {
+    if (editingQuizId) {
+      await quizzesAPI.update(editingQuizId, payload);
+    } else {
+      await quizzesAPI.create(payload);
+    }
+    await refreshQuizzes();
+    resetQuizForm();
+    setShowCreate(false);
+  } catch (e) { alert(e.message); }
 };
 
-const handleStatusChange = (quizId, newStatus) => {
-  setQuizzes((prev) =>
-    prev.map((quiz) =>
-      quiz.id === quizId
-        ? {
-            ...quiz,
-            status: newStatus,
-          }
-        : quiz
-    )
-  );
+const handleStatusChange = async (quizId, newStatus) => {
+  try {
+    const quiz = quizzes.find((q) => q.id === quizId);
+    if (!quiz) return;
+    await quizzesAPI.update(quizId, {
+      title: quiz.title,
+      subject: quiz.subject,
+      batch_id: quiz.batchId || null,
+      duration: Number(quiz.duration) || 30,
+      total_marks: Number(quiz.totalMarks) || 0,
+      available_from: quiz.availableFrom || null,
+      available_until: quiz.availableUntil || null,
+      instructions: quiz.instructions || "",
+      status: newStatus,
+      settings: quiz.settings || {
+        fullscreen: true,
+        randomQ: true,
+        randomOpts: false,
+        copyPaste: true,
+        tabDetect: true,
+      },
+    });
+    await refreshQuizzes();
+  } catch (e) {
+    alert("Failed to update status: " + e.message);
+  }
 };
 
 const handleEditQuiz = (quiz) => {
@@ -607,24 +593,18 @@ const handleEditQuiz = (quiz) => {
 
   setShowCreate(true);
 };
-const handleDeleteQuiz = (quizId) => {
-  const confirmDelete = window.confirm("Are you sure you want to delete this quiz?");
-
-  if (!confirmDelete) return;
-
-  setQuizzes((prev) => prev.filter((quiz) => quiz.id !== quizId));
+const handleDeleteQuiz = async (quizId) => {
+  if (!confirm("Delete this quiz?")) return;
+  try {
+    await quizzesAPI.delete(quizId);
+    await refreshQuizzes();
+  } catch (e) { alert(e.message); }
 };
-const handleDuplicateQuiz = (quizToDuplicate) => {
-  const duplicatedQuiz = {
-    ...quizToDuplicate,
-    id: Date.now(),
-    title: `${quizToDuplicate.title} Copy`,
-    status: "draft",
-    attempts: 0,
-    avgScore: 0,
-  };
-
-  setQuizzes((prev) => [duplicatedQuiz, ...prev]);
+const handleDuplicateQuiz = async (quiz) => {
+  try {
+    await quizzesAPI.duplicate(quiz.id);
+    await refreshQuizzes();
+  } catch (e) { alert(e.message); }
 };
 
 const openQuestionForm = (type) => {
@@ -707,116 +687,58 @@ const removeQuestionImage = () => {
   }));
 };
 
-const handleAddQuestionToQuiz = () => {
-  if (!editingQuizId) {
-    alert("Please create or edit a quiz before adding questions.");
-    return;
+const handleAddQuestionToQuiz = async () => {
+  if (!editingQuizId) { alert("Open a quiz first."); return; }
+  if (!newQuestion.questionText.trim()) { alert("Enter question text."); return; }
+  if (newQuestion.type === "mcq" && newQuestion.options.some(o => !o.trim())) {
+    alert("Fill all MCQ options."); return;
   }
-
-  if (!newQuestion.questionText.trim()) {
-    alert("Please enter the question.");
-    return;
+  if (newQuestion.type === "short" && !newQuestion.expectedAnswer.trim() && !newQuestion.keywords.trim()) {
+    alert("Enter expected answer or keywords."); return;
   }
-
-  if (newQuestion.type === "mcq") {
-    const hasEmptyOption = newQuestion.options.some((opt) => !opt.trim());
-
-    if (hasEmptyOption) {
-      alert("Please fill all MCQ options.");
-      return;
-    }
+  if (newQuestion.type === "coding" && (!newQuestion.problemTitle.trim() || !newQuestion.sampleInput.trim())) {
+    alert("Enter problem title and sample input."); return;
   }
-  if (newQuestion.type === "short") {
-  if (!newQuestion.expectedAnswer.trim() && !newQuestion.keywords.trim()) {
-    alert("Please enter an expected answer or keywords for evaluation.");
-    return;
-  }
-}
-if (newQuestion.type === "coding") {
-  if (!newQuestion.problemTitle.trim()) {
-    alert("Please enter the problem title.");
-    return;
-  }
-
-  if (!newQuestion.problemDescription.trim()) {
-    alert("Please enter the problem description.");
-    return;
-  }
-
-  if (!newQuestion.sampleInput.trim() || !newQuestion.sampleOutput.trim()) {
-    alert("Please enter sample input and sample output.");
-    return;
-  }
-}
-
-  const questionToAdd = {
-    id: Date.now(),
-    ...newQuestion,
-    marks: Number(newQuestion.marks) || 1,
-  };
-
-  setQuizzes((prev) =>
-    prev.map((quiz) =>
-      quiz.id === editingQuizId
-        ? {
-            ...quiz,
-            questionList: [...(quiz.questionList || []), questionToAdd],
-            questions: (quiz.questionList || []).length + 1,
-          }
-        : quiz
-    )
-  );
-
-  setNewQuestion({
-  type: questionType || "mcq",
-  topic: "",
-  marks: "",
-  questionText: "",
-  options: ["", "", "", ""],
-  correctOption: 0,
-  expectedAnswer: "",
-  keywords: "",
-  evaluationMode: questionType === "short" ? "nlp" : "manual",
-  imageData: "",
-  imageName: "",
-  problemTitle: "",
-  problemDescription: "",
-  constraints: "",
-  sampleInput: "",
-  sampleOutput: "",
-  starterCode:
-    questionType === "coding"
-      ? `function solve(input) {
-  // Write your code here
-}`
-      : "",
-  testCases: "",
-});
-
-  setQuestionType(null);
+  try {
+    await questionsAPI.add(editingQuizId, {
+      questionText: newQuestion.questionText,
+      type: newQuestion.type,
+      topic: newQuestion.topic,
+      marks: Number(newQuestion.marks) || 1,
+      difficulty: newQuestion.difficulty || "medium",
+      imageData: newQuestion.imageData || null,
+      options: newQuestion.type === "mcq" ? newQuestion.options : undefined,
+      correctOption: newQuestion.type === "mcq" ? newQuestion.correctOption : undefined,
+      expectedAnswer: newQuestion.expectedAnswer,
+      keywords: newQuestion.keywords,
+      evaluationMode: newQuestion.evaluationMode,
+      problemTitle: newQuestion.problemTitle,
+      problemDescription: newQuestion.problemDescription,
+      constraints: newQuestion.constraints,
+      sampleInput: newQuestion.sampleInput,
+      sampleOutput: newQuestion.sampleOutput,
+      starterCode: newQuestion.starterCode,
+      testCasesParsed: parseTestCasesFromText(newQuestion.testCases),
+    });
+    await refreshQuizzes();
+    setQuestionType(null);
+    // reset newQuestion back to defaults
+    setNewQuestion({
+      type: questionType || "mcq", topic: "", marks: "",
+      questionText: "", options: ["","","",""], correctOption: 0,
+      expectedAnswer: "", keywords: "", evaluationMode: "manual",
+      imageData: "", imageName: "", problemTitle: "", problemDescription: "",
+      constraints: "", sampleInput: "", sampleOutput: "",
+      starterCode: "", testCases: "",
+    });
+  } catch (e) { alert(e.message); }
 };
-const handleDeleteQuestionFromQuiz = (questionId) => {
-  if (!editingQuizId) return;
-
-  const confirmDelete = window.confirm("Delete this question?");
-
-  if (!confirmDelete) return;
-
-  setQuizzes((prev) =>
-    prev.map((quiz) => {
-      if (quiz.id !== editingQuizId) return quiz;
-
-      const updatedQuestions = (quiz.questionList || []).filter(
-        (question) => question.id !== questionId
-      );
-
-      return {
-        ...quiz,
-        questionList: updatedQuestions,
-        questions: updatedQuestions.length,
-      };
-    })
-  );
+const handleDeleteQuestionFromQuiz = async (questionId) => {
+  if (!confirm("Delete this question?")) return;
+  try {
+    await questionsAPI.delete(questionId);
+    await refreshQuizzes();
+  } catch (e) { alert(e.message); }
 };
 
 const getQuizQuestionsForResults = (quiz) => {
@@ -3048,7 +2970,7 @@ function Analytics({ role }) {
 }
 
 // ─── Classrooms ────────────────────────────────────────────────────────────────
-function Classrooms({ role, currentUser, batches, setBatches, users, setUsers, quizzes }) {
+function Classrooms({ role, currentUser, batches, setBatches, users, setUsers, quizzes, refreshBatches, refreshUsers }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newBatch, setNewBatch] = useState({
     name: "",
@@ -3078,34 +3000,23 @@ const [newStudent, setNewStudent] = useState({
     }));
   };
 
-  const handleCreateBatch = () => {
-    if (!newBatch.name.trim() || !newBatch.department.trim()) {
-      alert("Please enter batch name and department.");
-      return;
-    }
-
-    const batchToAdd = {
-      id: `batch-${Date.now()}`,
+  const handleCreateBatch = async () => {
+  if (!newBatch.name.trim() || !newBatch.department.trim()) {
+    alert("Enter name and department."); return;
+  }
+  try {
+    await batchesAPI.create({
       name: newBatch.name,
       department: newBatch.department,
-      semester: newBatch.semester || "Not specified",
-      academicYear: newBatch.academicYear || "Not specified",
-      subject: newBatch.subject || "Not assigned",
-      students: [],
-    };
-
-    setBatches((prev) => [batchToAdd, ...prev]);
-
-    setNewBatch({
-      name: "",
-      department: "",
-      semester: "",
-      academicYear: "",
-      subject: "",
+      semester: newBatch.semester,
+      academic_year: newBatch.academicYear,
+      subject: newBatch.subject,
     });
-
+    await refreshBatches();
+    setNewBatch({ name:"", department:"", semester:"", academicYear:"", subject:"" });
     setShowCreate(false);
-  };
+  } catch (e) { alert(e.message); }
+};
 
 const handleStudentInputChange = (field, value) => {
   setNewStudent((prev) => ({
@@ -3114,87 +3025,65 @@ const handleStudentInputChange = (field, value) => {
   }));
 };
 
-const handleAddStudent = () => {
-  
+const handleAddStudent = async () => {
   if (!newStudent.name.trim() || !newStudent.email.trim()) {
-    alert("Please enter student name and email.");
-    return;
+    alert("Name and email required."); return;
   }
-
-  const emailExists = users.some(
-    (user) => user.email.toLowerCase() === newStudent.email.trim().toLowerCase()
-  );
-
-  if (emailExists) {
-    alert("A user with this email already exists.");
-    return;
-  }
-
-  const studentToAdd = {
-    id: `stu-${Date.now()}`,
-    name: newStudent.name,
-    email: newStudent.email,
-    password: newStudent.password || "student123",
-    role: "student",
-    batchId: newStudent.batchId || "",
-  };
-
-  setUsers((prev) => [...prev, studentToAdd]);
-
-  setNewStudent({
-    name: "",
-    email: "",
-    password: "student123",
-    batchId: "",
-  });
-
-  setShowStudentForm(false);
-};
-
-const handleAssignStudentToBatch = (studentId, batchId) => {
-  setUsers((prev) =>
-    prev.map((user) =>
-      user.id === studentId
-        ? {
-            ...user,
-            batchId,
-          }
-        : user
-    )
-  );
-};
-
-const handleRemoveStudentFromBatch = (studentId) => {
-  setUsers((prev) =>
-    prev.map((user) =>
-      user.id === studentId
-        ? {
-            ...user,
-            batchId: "",
-          }
-        : user
-    )
-  );
-};
-
-const handleDeleteStudent = (studentId) => {
-  if (!confirm("Delete this student account?")) return;
-
-  setUsers((prev) => prev.filter((user) => user.id !== studentId));
-};
-
-  const handleDeleteBatch = (batchId) => {
-    const hasQuizzes = quizzes.some((quiz) => quiz.batchId === batchId);
-
-    if (hasQuizzes) {
-      alert("This batch has quizzes assigned. Remove/reassign those quizzes first.");
-      return;
+  try {
+    const res = await authAPI.register({
+      name: newStudent.name,
+      email: newStudent.email,
+      password: newStudent.password || "student123",
+      role: "STUDENT",
+    });
+    if (newStudent.batchId) {
+      await batchesAPI.enroll(newStudent.batchId, res.user_id);
     }
+    await refreshUsers();
+    await refreshBatches();
+    setNewStudent({ name:"", email:"", password:"student123", batchId:"" });
+    setShowStudentForm(false);
+  } catch (e) { alert(e.message); }
+};
 
-    if (!confirm("Delete this batch?")) return;
+const handleAssignStudentToBatch = async (studentId, batchId) => {
+  const student = users.find(u => u.id === studentId);
+  try {
+    if (student?.batchId) {
+      await batchesAPI.removeEnroll(student.batchId, studentId);
+    }
+    if (batchId) {
+      await batchesAPI.enroll(batchId, studentId);
+    }
+    await refreshBatches();
+    await refreshUsers();
+  } catch (e) { alert(e.message); }
+};
 
-    setBatches((prev) => prev.filter((batch) => batch.id !== batchId));
-  };
+const handleRemoveStudentFromBatch = async (studentId) => {
+  const student = users.find(u => u.id === studentId);
+  if (!student?.batchId) return;
+  try {
+    await batchesAPI.removeEnroll(student.batchId, studentId);
+    await refreshBatches();
+    await refreshUsers();
+  } catch (e) { alert(e.message); }
+};
+
+const handleDeleteStudent = async (studentId) => {
+  if (!confirm("Delete this student?")) return;
+  try {
+    await usersAPI.deleteUser(studentId);
+    await refreshUsers();
+  } catch (e) { alert(e.message); }
+};
+  const handleDeleteBatch = async (batchId) => {
+  if (!confirm("Delete this batch?")) return;
+  try {
+    await batchesAPI.delete(batchId);
+    await refreshBatches();
+  } catch (e) { alert(e.message); } // backend sends 409 if quizzes exist
+};
 
   const getBatchStudents = (batchId) =>
     studentUsers.filter((student) => student.batchId === batchId);
@@ -3554,55 +3443,137 @@ function Notifications() {
 
 // ─── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
-  const [authed, setAuthed] = useState(() => getFromStorage("authed", false));
-  const [role, setRole] = useState(() => getFromStorage("role", "student"));
-  const [currentUser, setCurrentUser] = useState(() =>
-    getFromStorage("currentUser", null)
-  );
-  const [page, setPage] = useState("dashboard");
-  const [selectedQuiz, setSelectedQuiz] = useState(null);
+const [authed, setAuthed] = useState(false);
+const [role, setRole] = useState("student");
+const [currentUser, setCurrentUser] = useState(null);
+const [page, setPage] = useState("dashboard");
+const [selectedQuiz, setSelectedQuiz] = useState(null);
+const [quizzes, setQuizzes] = useState([]);
+const [attempts, setAttempts] = useState([]);
+const [batches, setBatches] = useState([]);
+const [users, setUsers] = useState([]);
 
-const [quizzes, setQuizzes] = useState(() =>
-  getFromStorage("quizzes", SAMPLE_QUIZZES)
-);
-const [attempts, setAttempts] = useState(() =>
-  getFromStorage("attempts", [])
-);
-
-const [batches, setBatches] = useState(() =>
-  getFromStorage("batches", SAMPLE_BATCHES)
-);
-
+// Restore session from token on page reload
 useEffect(() => {
-  saveToStorage("quizzes", quizzes);
-}, [quizzes]);
+  const storedUser = localStorage.getItem("examify_user");
+  const storedToken = localStorage.getItem("examify_token");
+  if (storedUser && storedToken) {
+    const user = JSON.parse(storedUser);
+    const normalized = { ...user, batchId: user.batchId ?? user.batch_id ?? null };
+    setCurrentUser(normalized);
+    setRole(normalized.role.toLowerCase());
+    setAuthed(true);
+  }
+}, []);
+
+// Fetch data after login
 useEffect(() => {
-  saveToStorage("attempts", attempts);
-}, [attempts]);
+  if (!authed) return;
+  fetchQuizzes();
+  fetchBatches();
+  if (role === "teacher") fetchUsers();
+}, [authed, role]);
 
-useEffect(() => {
-  saveToStorage("batches", batches);
-}, [batches]);
-
-const [users, setUsers] = useState(() =>
-  getFromStorage("users", SAMPLE_USERS)
-);
-useEffect(() => {
-  saveToStorage("users", users);
-}, [users]);
-
-  const handleLogin = (user) => {
-  setCurrentUser(user);
-  setRole(user.role);
-  setAuthed(true);
-
-  saveToStorage("currentUser", user);
-  saveToStorage("role", user.role);
-  saveToStorage("authed", true);
-
-  setPage("dashboard");
+const fetchQuizzes = async () => {
+  try {
+    const data = await quizzesAPI.list();
+    const quizzesWithQuestions = await Promise.all(
+      data.map(async (q) => {
+        let questionList = [];
+        try {
+          const qData = await questionsAPI.list(q.quiz_id);
+          questionList = qData.map(question => ({
+            ...question,
+            id: question.question_id,
+            questionText: question.question_text,
+            type: question.type,
+            marks: question.marks,
+            topic: question.topic,
+            imageData: question.image_data ?? null,
+            expectedAnswer: question.expected_answer ?? "",
+            keywords: question.keywords ?? "",
+            evaluationMode: question.evaluation_mode ?? "manual",
+            problemTitle: question.problem_title ?? "",
+            problemDescription: question.problem_description ?? "",
+            constraints: question.constraints_text ?? "",
+            sampleInput: question.sample_input ?? "",
+            sampleOutput: question.sample_output ?? "",
+            starterCode: question.starter_code ?? "",
+            options: question.type === "mcq"
+              ? (question.options || []).map(o => o.option_text)
+              : [],
+            correctOption: question.type === "mcq"
+              ? (question.options || []).findIndex(o => o.is_correct)
+              : undefined,
+          }));
+        } catch (e) {
+          console.error("fetchQuestions for quiz", q.quiz_id, e);
+        }
+        return {
+          ...q,
+          id: q.quiz_id,
+          batchId: q.batch_id ? String(q.batch_id) : "",
+          batchName: q.batch_name ?? "",
+          window: q.start_time && q.end_time
+            ? `${new Date(q.start_time).toLocaleDateString()} – ${new Date(q.end_time).toLocaleDateString()}`
+            : "Not scheduled",
+          avgScore: q.avg_score ?? 0,
+          questions: q.questions ?? 0,
+          attempts: q.attempts ?? 0,
+          totalMarks: q.total_marks ?? 0,
+          duration: q.duration ?? 30,
+          availableFrom: q.start_time ?? "",
+          availableUntil: q.end_time ?? "",
+          instructions: q.instructions ?? "",
+          settings: {
+            fullscreen: q.setting_fullscreen ?? true,
+            randomQ: q.setting_random_q ?? true,
+            randomOpts: q.setting_random_opts ?? false,
+            copyPaste: q.setting_copy_paste ?? true,
+            tabDetect: q.setting_tab_detect ?? true,
+          },
+          questionList,
+        };
+      })
+    );
+    setQuizzes(quizzesWithQuestions);
+  } catch (e) { console.error("fetchQuizzes:", e); }
+};
+const fetchBatches = async () => {
+  try {
+    const data = await batchesAPI.list();
+    setBatches(data.map(b => ({
+      ...b,
+      id: b.batch_id,
+      academicYear: b.academic_year,
+      students: b.students ?? [],
+    })));
+  } catch (e) { console.error("fetchBatches:", e); }
 };
 
+const fetchUsers = async () => {
+  try {
+    const data = await usersAPI.list("STUDENT");
+    setUsers(data.map(u => ({
+      ...u,
+      id: u.user_id,
+      role: u.role.toLowerCase(),
+      batchId: u.batch_id ?? null,
+    })));
+  } catch (e) { console.error("fetchUsers:", e); }
+};
+
+  const handleLogin = (user) => {
+  const normalized = {
+    ...user,
+    batchId: user.batch_id ?? null,
+  };
+  localStorage.setItem("examify_user", JSON.stringify(normalized));
+  setCurrentUser(normalized);
+  setRole(normalized.role.toLowerCase());
+  setAuthed(true);
+  setPage("dashboard");
+};
   if (!authed) {
   return <AuthScreen onLogin={handleLogin} users={users} />;
 }
@@ -3634,25 +3605,25 @@ useEffect(() => {
     case "classrooms":
   return (
     <Classrooms
-      role={role}
-      currentUser={currentUser}
-      batches={batches}
-      setBatches={setBatches}
-      users={users}
-      setUsers={setUsers}
-      quizzes={quizzes}
-    />
+  role={role} currentUser={currentUser}
+  batches={batches} setBatches={setBatches}
+  users={users} setUsers={setUsers}
+  quizzes={quizzes}
+  refreshBatches={fetchBatches}
+  refreshUsers={fetchUsers}
+/>
   );
 
     case "quizzes":
   return role === "teacher" ? (
-    <QuizManager
-      quizzes={quizzes}
-      setQuizzes={setQuizzes}
-      batches={batches}
-      attempts={attempts}
-      setAttempts={setAttempts}
-    />
+  <QuizManager
+  quizzes={quizzes}
+  setQuizzes={setQuizzes}
+  batches={batches}
+  attempts={attempts}
+  setAttempts={setAttempts}
+  refreshQuizzes={fetchQuizzes}
+/>
   ) : (
     <div className="fade-in">
       <div className="section-title mb-4">My Quizzes</div>
@@ -3746,10 +3717,14 @@ case "questions":
               <button
   className="btn btn-ghost btn-sm"
   onClick={() => {
+    setToken(null);
+    localStorage.removeItem("examify_user");
     setAuthed(false);
     setCurrentUser(null);
+    setQuizzes([]); setBatches([]); setUsers([]);
   }}
 >
+
   <Icon name="logout" size={14} /> Sign out
 </button>
             </div>
