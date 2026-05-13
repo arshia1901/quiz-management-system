@@ -570,6 +570,20 @@ batchName: newQuiz.batchName,
   resetQuizForm();
   setShowCreate(false);
 };
+
+const handleStatusChange = (quizId, newStatus) => {
+  setQuizzes((prev) =>
+    prev.map((quiz) =>
+      quiz.id === quizId
+        ? {
+            ...quiz,
+            status: newStatus,
+          }
+        : quiz
+    )
+  );
+};
+
 const handleEditQuiz = (quiz) => {
   setEditingQuizId(quiz.id);
 
@@ -1331,11 +1345,51 @@ Output: 1 2`}
             </div>
             <div className="quiz-card-body">
               <div className="text-xs text-faint mb-3">📅 {q.window}</div>
-              <div className="quiz-card-stats">
-                <div className="quiz-stat"><div className="quiz-stat-value">{q.attempts}</div><div className="quiz-stat-label">Attempts</div></div>
-                <div className="quiz-stat"><div className="quiz-stat-value" style={{ color: q.avgScore > 75 ? "var(--green)" : q.avgScore > 60 ? "var(--amber)" : q.avgScore > 0 ? "var(--red)" : "var(--text3)" }}>{q.avgScore > 0 ? q.avgScore + "%" : "—"}</div><div className="quiz-stat-label">Avg Score</div></div>
-                <div className="quiz-stat"><div className="quiz-stat-value">3</div><div className="quiz-stat-label">Sections</div></div>
+                           <div className="quiz-card-stats">
+                <div className="quiz-stat">
+                  <div className="quiz-stat-value">{q.attempts}</div>
+                  <div className="quiz-stat-label">Attempts</div>
+                </div>
+
+                <div className="quiz-stat">
+                  <div
+                    className="quiz-stat-value"
+                    style={{
+                      color:
+                        q.avgScore > 75
+                          ? "var(--green)"
+                          : q.avgScore > 60
+                          ? "var(--amber)"
+                          : q.avgScore > 0
+                          ? "var(--red)"
+                          : "var(--text3)",
+                    }}
+                  >
+                    {q.avgScore > 0 ? q.avgScore + "%" : "—"}
+                  </div>
+                  <div className="quiz-stat-label">Avg Score</div>
+                </div>
+
+                <div className="quiz-stat">
+                  <div className="quiz-stat-value">3</div>
+                  <div className="quiz-stat-label">Sections</div>
+                </div>
               </div>
+
+              <div className="form-group mt-3">
+                <label className="form-label">Quiz Status</label>
+                <select
+                  className="input"
+                  value={q.status}
+                  onChange={(e) => handleStatusChange(q.id, e.target.value)}
+                >
+                  <option value="draft">Draft</option>
+                  <option value="live">Live</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+
+              
               <div className="flex gap-2 mt-3">
                 <button
                   className="btn btn-ghost btn-sm flex-1"
@@ -1497,9 +1551,10 @@ function CodingInterface({ quizzes, quizId }) {
   const [customInput, setCustomInput]     = useState("");
   const [verdict, setVerdict]             = useState("");
   const [testResults, setTestResults]     = useState([]);
-  const [timeLeft, setTimeLeft]           = useState(
-    (activeQuiz?.duration || 30) * 60
-  );
+  const [timeLeft, setTimeLeft] = useState(() => {
+  const duration = Number(quiz?.duration) || 45;
+  return duration * 60;
+});
   const [warnings, setWarnings]           = useState(0);
   const [leftWidth, setLeftWidth]         = useState(45);
   const isDragging                        = useRef(false);
@@ -2000,21 +2055,65 @@ if (activeTab === "custom" && question?.sampleOutput) {
   );
 }
 // ─── Quiz Attempt Interface ────────────────────────────────────────────────────
-function QuizAttempt() {
+function QuizAttempt({quiz, setPage}) {
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
   const [flagged, setFlagged] = useState([]);
   const [timeLeft, setTimeLeft] = useState(45 * 60);
   const [showCheat, setShowCheat] = useState(false);
   const [violations, setViolations] = useState(0);
+  const [submitted, setSubmitted] = useState(false);
 
-  const questions = [
-    { id: 0, text: "Which data structure operates on LIFO (Last In, First Out) principle?", type: "mcq", opts: ["Queue", "Stack", "Array", "Linked List"], correct: 1, marks: 2 },
-    { id: 1, text: "What is the time complexity of binary search on a sorted array?", type: "mcq", opts: ["O(n)", "O(n²)", "O(log n)", "O(1)"], correct: 2, marks: 2 },
-    { id: 2, text: "Explain the difference between a stack and a queue with real-world examples.", type: "short", marks: 5 },
-    { id: 3, text: "Implement a function that finds the maximum element in a binary search tree.", type: "coding", marks: 10 },
-    { id: 4, text: "Refer to the diagram and identify the tree traversal order shown.", type: "image", marks: 3 },
-  ];
+  const questions = (quiz?.questionList || []).map((question, index) => ({
+  id: question.id || index,
+  text: question.questionText || question.text || "Untitled question",
+  type: question.type || "mcq",
+  opts: question.options || question.opts || [],
+  correct: question.correctOption ?? question.correct,
+  marks: Number(question.marks) || 1,
+  topic: question.topic || "",
+  expectedAnswer: question.expectedAnswer || "",
+  keywords: question.keywords || "",
+  image:
+    question.image ||
+    question.imageData ||
+    question.imageUrl ||
+    question.imagePreview ||
+    question.questionImage ||
+    question.uploadedImage ||
+    null,
+}));
+if (!quiz) {
+  return (
+    <div className="fade-in">
+      <div className="card">
+        <div className="section-title mb-2">No quiz selected</div>
+        <div className="text-sm text-faint mb-4">
+          Please go back to My Quizzes and start a quiz.
+        </div>
+        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
+          Back to My Quizzes
+        </button>
+      </div>
+    </div>
+  );
+}
+
+if (questions.length === 0) {
+  return (
+    <div className="fade-in">
+      <div className="card">
+        <div className="section-title mb-2">{quiz.title}</div>
+        <div className="text-sm text-faint mb-4">
+          This quiz does not have any questions yet.
+        </div>
+        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
+          Back to My Quizzes
+        </button>
+      </div>
+    </div>
+  );
+}
 
   useEffect(() => {
     const timer = setInterval(() => setTimeLeft(t => t > 0 ? t - 1 : 0), 1000);
@@ -2032,13 +2131,62 @@ function QuizAttempt() {
   };
 
   const q = questions[current];
+  console.log("Current question:", q);
+
+  const handleSubmitQuiz = () => {
+  const confirmSubmit = confirm(
+    "Submit quiz? You cannot change answers after submitting."
+  );
+
+  if (!confirmSubmit) return;
+
+  setSubmitted(true);
+};
 
   const triggerCheatWarning = () => {
     const newV = violations + 1;
     setViolations(newV);
-    if (newV >= 3) { setShowCheat(true); return; }
+    if (newV >= 3) { setShowCheat(true); setSubmitted(true); return; }
     alert(`⚠ Warning ${newV}/3: Tab switching detected. Quiz will auto-submit after 3 violations.`);
   };
+  if (submitted) {
+  const answeredCount = Object.keys(answers).length;
+
+  return (
+    <div className="fade-in">
+      <div className="card" style={{ maxWidth: 680, margin: "0 auto" }}>
+        <div className="section-title mb-2">Quiz Submitted</div>
+
+        <div className="text-sm text-faint mb-4">
+          Your responses have been recorded for this attempt.
+        </div>
+
+        <div className="grid-3 mb-4">
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">{quiz.title}</div>
+            <div className="quiz-stat-label">Quiz</div>
+          </div>
+
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">
+              {answeredCount}/{questions.length}
+            </div>
+            <div className="quiz-stat-label">Answered</div>
+          </div>
+
+          <div className="quiz-stat">
+            <div className="quiz-stat-value">{violations}</div>
+            <div className="quiz-stat-label">Violations</div>
+          </div>
+        </div>
+
+        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
+          Back to My Quizzes
+        </button>
+      </div>
+    </div>
+  );
+}
 
   return (
     <div className="fade-in">
@@ -2073,6 +2221,29 @@ function QuizAttempt() {
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--text)", marginBottom: 24, lineHeight: 1.6 }}>
             {q.text}
           </div>
+          {q.image && (
+  <div
+    style={{
+      background: "var(--bg3)",
+      border: "1px solid var(--border)",
+      borderRadius: "var(--radius)",
+      padding: 12,
+      marginBottom: 16,
+    }}
+  >
+    <img
+      src={q.image}
+      alt="Question reference"
+      style={{
+        width: "100%",
+        maxHeight: 260,
+        objectFit: "contain",
+        borderRadius: 10,
+        display: "block",
+      }}
+    />
+  </div>
+)}
 
           {q.type === "mcq" && q.opts.map((opt, i) => (
             <div key={i} className={`option-card ${answers[current] === i ? "selected" : ""}`} onClick={() => setAnswers(a => ({ ...a, [current]: i }))}>
@@ -2104,23 +2275,72 @@ function QuizAttempt() {
           )}
 
           {q.type === "image" && (
-            <div>
-              <div style={{ background: "var(--bg3)", border: "1px dashed var(--border2)", borderRadius: "var(--radius)", height: 160, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, color: "var(--text3)", fontSize: 13 }}>
-                📊 Tree traversal diagram (image placeholder)
-              </div>
-              <div className="form-group">
-                <label className="form-label">Your answer</label>
-                <input className="input" placeholder="e.g. In-order traversal" value={answers[current] || ""} onChange={e => setAnswers(a => ({ ...a, [current]: e.target.value }))} />
-              </div>
-            </div>
-          )}
+  <div>
+    {q.image ? (
+      <div
+        style={{
+          background: "var(--bg3)",
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius)",
+          padding: 12,
+          marginBottom: 16,
+        }}
+      >
+        <img
+          src={q.image}
+          alt="Question reference"
+          style={{
+            width: "100%",
+            maxHeight: 260,
+            objectFit: "contain",
+            borderRadius: 10,
+            display: "block",
+          }}
+        />
+      </div>
+    ) : (
+      <div
+        style={{
+          background: "var(--bg3)",
+          border: "1px dashed var(--border2)",
+          borderRadius: "var(--radius)",
+          height: 160,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+          color: "var(--text3)",
+          fontSize: 13,
+        }}
+      >
+        No image attached for this question.
+      </div>
+    )}
+
+    <div className="form-group">
+      <label className="form-label">Your answer</label>
+      <input
+        className="input"
+        placeholder="Write your answer here..."
+        value={answers[current] || ""}
+        onChange={(e) =>
+          setAnswers((a) => ({ ...a, [current]: e.target.value }))
+        }
+      />
+    </div>
+  </div>
+)}
 
           <div className="flex items-center justify-between mt-6">
             <button className="btn btn-secondary" disabled={current === 0} onClick={() => setCurrent(c => c - 1)}>← Previous</button>
             <button className="btn btn-ghost btn-sm" onClick={triggerCheatWarning} style={{ fontSize: 11, color: "var(--text3)" }}>Simulate Tab Switch</button>
             {current < questions.length - 1
               ? <button className="btn btn-primary" onClick={() => setCurrent(c => c + 1)}>Next →</button>
-              : <button className="btn btn-success">Submit Quiz</button>}
+              : (
+  <button className="btn btn-success" onClick={handleSubmitQuiz}>
+    Submit Quiz
+  </button>
+)}
           </div>
         </div>
 
@@ -2942,6 +3162,7 @@ export default function App() {
     getFromStorage("currentUser", null)
   );
   const [page, setPage] = useState("dashboard");
+  const [selectedQuiz, setSelectedQuiz] = useState(null);
 
 const [quizzes, setQuizzes] = useState(() =>
   getFromStorage("quizzes", SAMPLE_QUIZZES)
@@ -3062,7 +3283,10 @@ useEffect(() => {
               <div className="quiz-card-body">
                 <button
                   className="btn btn-primary btn-sm"
-                  onClick={() => setPage("attempt")}
+                  onClick={() => {
+  setSelectedQuiz(q);
+  setPage("attempt");
+}}
                 >
                   Start Quiz →
                 </button>
@@ -3089,7 +3313,7 @@ case "questions":
       return <Notifications />;
 
     case "attempt":
-      return <QuizAttempt />;
+  return <QuizAttempt quiz={selectedQuiz} setPage={setPage} />;
 
     default:
       return null;
