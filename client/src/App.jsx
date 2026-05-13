@@ -443,6 +443,8 @@ function QuizManager({quizzes, setQuizzes}) {
   expectedAnswer: "",
   keywords: "",
   evaluationMode: "manual",
+  imageData: "",
+  imageName: "",
 });
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
 const [newQuiz, setNewQuiz] = useState({
@@ -577,16 +579,18 @@ const openQuestionForm = (type) => {
   setQuestionType(type);
 
   setNewQuestion({
-    type,
-    topic: "",
-    marks: "",
-    questionText: "",
-    options: ["", "", "", ""],
-    correctOption: 0,
-    expectedAnswer: "",
-    keywords: "",
-    evaluationMode: type === "short" ? "nlp" : "manual",
-  });
+  type,
+  topic: "",
+  marks: "",
+  questionText: "",
+  options: ["", "", "", ""],
+  correctOption: 0,
+  expectedAnswer: "",
+  keywords: "",
+  evaluationMode: "short" ? "nlp" : "manual",
+  imageData: "",
+  imageName: "",
+});
 };
 
 const handleQuestionChange = (field, value) => {
@@ -606,6 +610,37 @@ const handleOptionChange = (index, value) => {
       options: updatedOptions,
     };
   });
+};
+
+const handleImageUpload = (event) => {
+  const file = event.target.files?.[0];
+
+  if (!file) return;
+
+  if (!file.type.startsWith("image/")) {
+    alert("Please upload a valid image file.");
+    return;
+  }
+
+  const reader = new FileReader();
+
+  reader.onloadend = () => {
+    setNewQuestion((prev) => ({
+      ...prev,
+      imageData: reader.result,
+      imageName: file.name,
+    }));
+  };
+
+  reader.readAsDataURL(file);
+};
+
+const removeQuestionImage = () => {
+  setNewQuestion((prev) => ({
+    ...prev,
+    imageData: "",
+    imageName: "",
+  }));
 };
 
 const handleAddQuestionToQuiz = () => {
@@ -662,6 +697,8 @@ const handleAddQuestionToQuiz = () => {
   expectedAnswer: "",
   keywords: "",
   evaluationMode: questionType === "short" ? "nlp" : "manual",
+  imageData: "",
+  imageName: "",
 });
 
   setQuestionType(null);
@@ -798,7 +835,7 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
                 ["MCQ", "badge-blue", "mcq"],
                 ["Short Answer", "badge-purple", "short"],
                 ["Coding", "badge-accent", "coding"],
-                ["Image-based", "badge-amber", "image"],
+                
               ].map(([label, cls, type]) => (
                 <div
                   key={type}
@@ -858,6 +895,46 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
         onChange={(e) => handleQuestionChange("questionText", e.target.value)}
       />
     </div>
+    <div className="form-group mb-3">
+  <label className="form-label">Optional Image Attachment</label>
+  <input
+    className="input"
+    type="file"
+    accept="image/*"
+    onChange={handleImageUpload}
+  />
+
+  {newQuestion.imageName && (
+    <div className="text-xs text-faint mt-1">
+      Selected: {newQuestion.imageName}
+    </div>
+  )}
+
+  {newQuestion.imageData && (
+    <div className="mt-3">
+      <img
+        src={newQuestion.imageData}
+        alt="Question preview"
+        style={{
+          maxWidth: "100%",
+          maxHeight: 220,
+          borderRadius: 12,
+          border: "1px solid var(--border)",
+          objectFit: "contain",
+        }}
+      />
+
+      <div className="mt-2">
+        <button
+          className="btn btn-danger btn-sm"
+          onClick={removeQuestionImage}
+        >
+          Remove Image
+        </button>
+      </div>
+    </div>
+  )}
+</div>
 
     {questionType === "mcq" && (
       <div className="mb-3">
@@ -964,16 +1041,33 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
           >
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-sm font-semibold">
-                  Q{index + 1}. {question.questionText}
-                </div>
-                <div className="text-xs text-faint mt-1">
-                  {question.type.toUpperCase()} • {question.topic || "No topic"} • {question.marks} mark(s)
-                  {question.type === "short" && question.evaluationMode
-                    ? ` • ${question.evaluationMode === "nlp" ? "NLP Assisted" : "Manual Review"}`
-                    : ""}
-                </div>
-              </div>
+  {question.imageData && (
+    <img
+      src={question.imageData}
+      alt="Question thumbnail"
+      style={{
+        width: 80,
+        height: 55,
+        objectFit: "cover",
+        borderRadius: 8,
+        border: "1px solid var(--border)",
+        marginBottom: 8,
+      }}
+    />
+  )}
+
+  <div className="text-sm font-semibold">
+    Q{index + 1}. {question.questionText}
+  </div>
+
+  <div className="text-xs text-faint mt-1">
+    {question.type.toUpperCase()} • {question.topic || "No topic"} • {question.marks} mark(s)
+    {question.type === "short" && question.evaluationMode
+      ? ` • ${question.evaluationMode === "nlp" ? "NLP Assisted" : "Manual Review"}`
+      : ""}
+    {question.imageData ? " • Image attached" : ""}
+  </div>
+</div>
 
               <div className="flex items-center gap-2">
   <span className="badge badge-blue">
