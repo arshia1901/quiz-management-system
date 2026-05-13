@@ -2389,7 +2389,7 @@ function Analytics({ role }) {
 }
 
 // ─── Classrooms ────────────────────────────────────────────────────────────────
-function Classrooms({ role, batches, setBatches, users, setUsers, quizzes }) {
+function Classrooms({ role, currentUser, batches, setBatches, users, setUsers, quizzes }) {
   const [showCreate, setShowCreate] = useState(false);
   const [newBatch, setNewBatch] = useState({
     name: "",
@@ -2407,6 +2407,10 @@ const [newStudent, setNewStudent] = useState({
 });
 
   const studentUsers = users.filter((user) => user.role === "student");
+  const visibleBatches =
+  role === "teacher"
+    ? batches
+    : batches.filter((batch) => batch.id === currentUser?.batchId);
 
   const handleBatchInputChange = (field, value) => {
     setNewBatch((prev) => ({
@@ -2717,7 +2721,7 @@ const handleDeleteStudent = (studentId) => {
 )}
 
       <div className="grid-3">
-        {batches.map((batch) => {
+        {visibleBatches.map((batch) => {
           const batchStudents = getBatchStudents(batch.id);
           const quizCount = getBatchQuizCount(batch.id);
 
@@ -2965,6 +2969,7 @@ useEffect(() => {
   return (
     <Classrooms
       role={role}
+      currentUser={currentUser}
       batches={batches}
       setBatches={setBatches}
       users={users}
