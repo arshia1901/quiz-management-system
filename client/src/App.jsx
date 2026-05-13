@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback,useMemo  } from "react";
 import {
   SAMPLE_QUIZZES,
   SAMPLE_STUDENTS,
+  SAMPLE_USERS,
   NOTIFS,
   SAMPLE_QUESTIONS,
   CODE_TEMPLATE,
@@ -109,7 +110,7 @@ function QTypeBadge({ type }) {
 }
 
 // ─── Auth Screen ───────────────────────────────────────────────────────────────
-function AuthScreen({ onLogin }) {
+function AuthScreen({ onLogin, users=[] }) {
   const [tab, setTab] = useState("login");
   const [role, setRole] = useState("student");
   const [email, setEmail] = useState("");
@@ -118,9 +119,26 @@ function AuthScreen({ onLogin }) {
   const [loading, setLoading] = useState(false);
 
   const handleSubmit = () => {
-    setLoading(true);
-    setTimeout(() => { setLoading(false); onLogin(role); }, 1000);
-  };
+  setLoading(true);
+
+  setTimeout(() => {
+    const user = users.find(
+      (u) =>
+        u.email.toLowerCase() === email.trim().toLowerCase() &&
+        u.password === pass &&
+        u.role === role
+    );
+
+    if (!user) {
+      setLoading(false);
+      alert("Invalid email, password, or role.");
+      return;
+    }
+
+    setLoading(false);
+    onLogin(user);
+  }, 500);
+};
 
   return (
     <div className="auth-screen">
@@ -240,7 +258,7 @@ function Sidebar({ role, page, setPage }) {
 }
 
 // ─── Teacher Dashboard ─────────────────────────────────────────────────────────
-function TeacherDashboard({quizzes}) {
+function TeacherDashboard({currentUser, quizzes}) {
   const weekData = [
     { label: "Mon", value: 45, color: "var(--accent)" },
     { label: "Tue", value: 72, color: "var(--accent)" },
@@ -255,7 +273,7 @@ function TeacherDashboard({quizzes}) {
     <div className="fade-in">
       <div className="dashboard-hero">
         <div>
-          <h1>Good morning, Prof. Sharma 👋</h1>
+          <h1>Welcome back, {currentUser?.name || "Teacher"} 👋</h1>
           <p>You have <strong>3 active quizzes</strong> and <strong>12 pending reviews</strong> today.</p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -348,7 +366,7 @@ function TeacherDashboard({quizzes}) {
 }
 
 // ─── Student Dashboard ─────────────────────────────────────────────────────────
-function StudentDashboard({ setPage, quizzes }) {
+function StudentDashboard({ setPage, quizzes, currentUser }) {
   const scores = [
     { label: "DS", value: 82 }, { label: "Algo", value: 67 }, { label: "DB", value: 91 },
     { label: "OS", value: 54 }, { label: "CN", value: 78 },
@@ -358,9 +376,9 @@ function StudentDashboard({ setPage, quizzes }) {
     <div className="fade-in">
       <div className="dashboard-hero" style={{ background: "linear-gradient(135deg,rgba(34,211,160,0.12) 0%,rgba(77,166,255,0.08) 100%)", borderColor: "rgba(34,211,160,0.2)" }}>
         <div>
-          <h1>Hey Arjun! 🚀</h1>
-          <p>You have <strong>2 quizzes due</strong> this week. Keep up the streak!</p>
-        </div>
+  <h1>Hey {currentUser?.name || "Student"}! 🚀</h1>
+  <p>You have <strong>2 quizzes due</strong> this week. Keep up the streak!</p>
+</div>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 40, fontFamily: "var(--serif)", fontWeight: 600, color: "var(--green)" }}>82%</div>
           <div className="text-xs text-faint">Overall accuracy</div>
@@ -2466,6 +2484,9 @@ function Notifications() {
 export default function App() {
   const [authed, setAuthed] = useState(() => getFromStorage("authed", false));
   const [role, setRole] = useState(() => getFromStorage("role", "student"));
+  const [currentUser, setCurrentUser] = useState(() =>
+    getFromStorage("currentUser", null)
+  );
   const [page, setPage] = useState("dashboard");
   const [quizzes, setQuizzes] = useState(() =>
   getFromStorage("quizzes", SAMPLE_QUIZZES)
@@ -2474,15 +2495,21 @@ useEffect(() => {
   saveToStorage("quizzes", quizzes);
 }, [quizzes]);
 
-  const handleLogin = (r) => {
-  setRole(r);
+  const handleLogin = (user) => {
+  setCurrentUser(user);
+  setRole(user.role);
   setAuthed(true);
-  saveToStorage("role", r);
+
+  saveToStorage("currentUser", user);
+  saveToStorage("role", user.role);
   saveToStorage("authed", true);
+
   setPage("dashboard");
 };
 
-  if (!authed) return <AuthScreen onLogin={handleLogin} />;
+  if (!authed) {
+  return <AuthScreen onLogin={handleLogin} users={SAMPLE_USERS} />;
+}
 
   const pageTitles = {
     dashboard: "Dashboard", classrooms: "Classrooms", quizzes: "Quiz Manager",
@@ -2493,12 +2520,21 @@ useEffect(() => {
   const renderPage = () => {
   switch (page) {
     case "dashboard":
-      return role === "teacher" ? (
-        <TeacherDashboard quizzes={quizzes} />
-      ) : (
-        <StudentDashboard setPage={setPage} quizzes={quizzes} />
+  return role === "teacher"
+    ? (
+        <TeacherDashboard
+          currentUser={currentUser}
+          quizzes={quizzes}
+          students={SAMPLE_STUDENTS}
+        />
+      )
+    : (
+        <StudentDashboard
+          setPage={setPage}
+          currentUser={currentUser}
+          quizzes={quizzes}
+        />
       );
-
     case "classrooms":
       return <Classrooms role={role} />;
 
@@ -2576,9 +2612,7 @@ useEffect(() => {
   className="btn btn-ghost btn-sm"
   onClick={() => {
     setAuthed(false);
-    removeFromStorage("authed");
-    removeFromStorage("role");
-    setPage("dashboard");
+    setCurrentUser(null);
   }}
 >
   <Icon name="logout" size={14} /> Sign out

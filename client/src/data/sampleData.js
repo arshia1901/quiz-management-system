@@ -13,6 +13,39 @@ export const SAMPLE_STUDENTS = [
   { id: 4, name: "Sneha Patel", email: "sneha@college.edu", score: 68, rank: 4, submitted: "5h ago", status: "graded" },
   { id: 5, name: "Vikram Nair", email: "vikram@college.edu", score: 54, rank: 5, submitted: "6h ago", status: "cheating" },
 ];
+export const SAMPLE_USERS = [
+  {
+    id: "teacher-1",
+    name: "Prof. Meera Rao",
+    email: "teacher@rvce.edu.in",
+    password: "teacher123",
+    role: "teacher",
+  },
+  {
+    id: "stu-ise-a-1",
+    name: "Arshia Sirohi",
+    email: "arshiasirohi.is23@rvce.edu.in",
+    password: "student123",
+    role: "student",
+    batchId: "batch-ise-a",
+  },
+  {
+    id: "stu-ise-b-1",
+    name: "Suhani Khurana",
+    email: "suhanikhurana.is23@rvce.edu.in",
+    password: "student123",
+    role: "student",
+    batchId: "batch-ise-b",
+  },
+  {
+    id: "stu-cse-a-1",
+    name: "Kabir Sharma",
+    email: "kabirsharma.cs23@rvce.edu.in",
+    password: "student123",
+    role: "student",
+    batchId: "batch-cse-a",
+  },
+];
 
 export const NOTIFS = [
   { id: 1, type: "quiz", title: "New quiz assigned: Data Structures", time: "2m ago", read: false, icon: "📋" },
