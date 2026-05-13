@@ -434,13 +434,16 @@ function QuizManager({quizzes, setQuizzes}) {
 
   const [questionType, setQuestionType] = useState(null);
   const [newQuestion, setNewQuestion] = useState({
-    type: "mcq",
-    topic: "",
-    marks: "",
-    questionText: "",
-    options: ["", "", "", ""],
-    correctOption: 0,
-  });
+  type: "mcq",
+  topic: "",
+  marks: "",
+  questionText: "",
+  options: ["", "", "", ""],
+  correctOption: 0,
+  expectedAnswer: "",
+  keywords: "",
+  evaluationMode: "manual",
+});
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
 const [newQuiz, setNewQuiz] = useState({
   title: "",
@@ -572,6 +575,7 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
 
 const openQuestionForm = (type) => {
   setQuestionType(type);
+
   setNewQuestion({
     type,
     topic: "",
@@ -579,6 +583,9 @@ const openQuestionForm = (type) => {
     questionText: "",
     options: ["", "", "", ""],
     correctOption: 0,
+    expectedAnswer: "",
+    keywords: "",
+    evaluationMode: type === "short" ? "nlp" : "manual",
   });
 };
 
@@ -620,6 +627,12 @@ const handleAddQuestionToQuiz = () => {
       return;
     }
   }
+  if (newQuestion.type === "short") {
+  if (!newQuestion.expectedAnswer.trim() && !newQuestion.keywords.trim()) {
+    alert("Please enter an expected answer or keywords for evaluation.");
+    return;
+  }
+}
 
   const questionToAdd = {
     id: Date.now(),
@@ -640,13 +653,16 @@ const handleAddQuestionToQuiz = () => {
   );
 
   setNewQuestion({
-    type: questionType || "mcq",
-    topic: "",
-    marks: "",
-    questionText: "",
-    options: ["", "", "", ""],
-    correctOption: 0,
-  });
+  type: questionType || "mcq",
+  topic: "",
+  marks: "",
+  questionText: "",
+  options: ["", "", "", ""],
+  correctOption: 0,
+  expectedAnswer: "",
+  keywords: "",
+  evaluationMode: questionType === "short" ? "nlp" : "manual",
+});
 
   setQuestionType(null);
 };
@@ -870,12 +886,52 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
         </div>
       </div>
     )}
+    {questionType === "short" && (
+  <div className="mb-3">
+    <div className="form-group mb-3">
+      <label className="form-label">Expected Answer</label>
+      <textarea
+        className="input"
+        rows={3}
+        placeholder="Write the ideal answer or key points..."
+        style={{ resize: "vertical" }}
+        value={newQuestion.expectedAnswer}
+        onChange={(e) => handleQuestionChange("expectedAnswer", e.target.value)}
+      />
+    </div>
 
-    {questionType !== "mcq" && (
-      <div className="text-sm text-faint mb-3">
-        For now, only MCQ saving is fully functional. We will add this question type next.
+    <div className="form-group mb-3">
+      <label className="form-label">Keywords / Concepts</label>
+      <input
+        className="input"
+        placeholder="e.g. process, scheduling, ready queue"
+        value={newQuestion.keywords}
+        onChange={(e) => handleQuestionChange("keywords", e.target.value)}
+      />
+      <div className="text-xs text-faint mt-1">
+        These can later be used for NLP-based evaluation.
       </div>
-    )}
+    </div>
+
+    <div className="form-group">
+      <label className="form-label">Evaluation Mode</label>
+      <select
+        className="input"
+        value={newQuestion.evaluationMode}
+        onChange={(e) => handleQuestionChange("evaluationMode", e.target.value)}
+      >
+        <option value="manual">Manual Review</option>
+        <option value="nlp">NLP Assisted</option>
+      </select>
+    </div>
+  </div>
+)}
+
+    {questionType !== "mcq" && questionType !== "short" && (
+  <div className="text-sm text-faint mb-3">
+    This question type UI will be added next.
+  </div>
+)}
 
     <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
       <button
@@ -913,6 +969,9 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
                 </div>
                 <div className="text-xs text-faint mt-1">
                   {question.type.toUpperCase()} • {question.topic || "No topic"} • {question.marks} mark(s)
+                  {question.type === "short" && question.evaluationMode
+                    ? ` • ${question.evaluationMode === "nlp" ? "NLP Assisted" : "Manual Review"}`
+                    : ""}
                 </div>
               </div>
 
