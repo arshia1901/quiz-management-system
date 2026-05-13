@@ -2528,7 +2528,19 @@ if (questions.length === 0) {
     submittedAt: new Date().toLocaleString(),
   };
 
-  setAttempts((prev) => [attemptToSave, ...prev]);
+  setAttempts((prev) => {
+  const alreadyAttempted = prev.some(
+    (attempt) =>
+      attempt.quizId === quiz?.id && attempt.studentId === currentUser?.id
+  );
+
+  if (alreadyAttempted) {
+    alert("You have already submitted this quiz.");
+    return prev;
+  }
+
+  return [attemptToSave, ...prev];
+});
 
   setSubmitted(true);
 };
@@ -3670,7 +3682,12 @@ useEffect(() => {
           .filter(
             (q) => q.status === "live" && q.batchId === currentUser?.batchId
           )
-          .map((q) => (
+          .map((q) => {
+            const existingAttempt = attempts.find(
+              (attempt) =>
+                attempt.quizId === q.id && attempt.studentId === currentUser?.id
+            );
+            return (
             <div key={q.id} className="quiz-card mb-3">
               <div className="quiz-card-header">
                 <div className="quiz-card-title">{q.title}</div>
@@ -3687,6 +3704,25 @@ useEffect(() => {
               </div>
 
               <div className="quiz-card-body">
+                {existingAttempt ? (
+                  <div className="flex items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm" style={{ fontWeight: 600 }}>
+                          Attempt submitted
+                        </div>
+                        <div className="text-xs text-faint">
+                          Submitted: {existingAttempt.submittedAt}
+                        </div>
+                      </div>
+                  <span className="badge badge-blue">
+                        {existingAttempt.evaluated
+                          ? `Final: ${existingAttempt.finalScore}/${existingAttempt.maxScore}`
+                          : `Auto: ${existingAttempt.score ?? 0}/${
+                              existingAttempt.maxScore ?? 0
+                            }`}
+                      </span>
+                    </div>
+                ) : (
                 <button
                   className="btn btn-primary btn-sm"
                   onClick={() => {
@@ -3696,10 +3732,12 @@ useEffect(() => {
                 >
                   Start Quiz →
                 </button>
+                )}
               </div>
             </div>
-          ))
-      )}
+          );
+      })
+    )}
     </div>
   );
 
