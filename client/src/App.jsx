@@ -431,6 +431,16 @@ function StudentDashboard({ setPage, quizzes }) {
 function QuizManager({quizzes, setQuizzes}) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
+
+  const [questionType, setQuestionType] = useState(null);
+  const [newQuestion, setNewQuestion] = useState({
+    type: "mcq",
+    topic: "",
+    marks: "",
+    questionText: "",
+    options: ["", "", "", ""],
+    correctOption: 0,
+  });
   const [settings, setSettings] = useState({ fullscreen: true, randomQ: true, randomOpts: false, copyPaste: true, tabDetect: true });
 const [newQuiz, setNewQuiz] = useState({
   title: "",
@@ -560,6 +570,87 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
   setQuizzes((prev) => [duplicatedQuiz, ...prev]);
 };
 
+const openQuestionForm = (type) => {
+  setQuestionType(type);
+  setNewQuestion({
+    type,
+    topic: "",
+    marks: "",
+    questionText: "",
+    options: ["", "", "", ""],
+    correctOption: 0,
+  });
+};
+
+const handleQuestionChange = (field, value) => {
+  setNewQuestion((prev) => ({
+    ...prev,
+    [field]: value,
+  }));
+};
+
+const handleOptionChange = (index, value) => {
+  setNewQuestion((prev) => {
+    const updatedOptions = [...prev.options];
+    updatedOptions[index] = value;
+
+    return {
+      ...prev,
+      options: updatedOptions,
+    };
+  });
+};
+
+const handleAddQuestionToQuiz = () => {
+  if (!editingQuizId) {
+    alert("Please create or edit a quiz before adding questions.");
+    return;
+  }
+
+  if (!newQuestion.questionText.trim()) {
+    alert("Please enter the question.");
+    return;
+  }
+
+  if (newQuestion.type === "mcq") {
+    const hasEmptyOption = newQuestion.options.some((opt) => !opt.trim());
+
+    if (hasEmptyOption) {
+      alert("Please fill all MCQ options.");
+      return;
+    }
+  }
+
+  const questionToAdd = {
+    id: Date.now(),
+    ...newQuestion,
+    marks: Number(newQuestion.marks) || 1,
+  };
+
+  setQuizzes((prev) =>
+    prev.map((quiz) =>
+      quiz.id === editingQuizId
+        ? {
+            ...quiz,
+            questionList: [...(quiz.questionList || []), questionToAdd],
+            questions: (quiz.questionList || []).length + 1,
+          }
+        : quiz
+    )
+  );
+
+  setNewQuestion({
+    type: questionType || "mcq",
+    topic: "",
+    marks: "",
+    questionText: "",
+    options: ["", "", "", ""],
+    correctOption: 0,
+  });
+
+  setQuestionType(null);
+};
+
   return (
     <div className="fade-in">
       <div className="section-head mb-6">
@@ -664,14 +755,157 @@ const handleDuplicateQuiz = (quizToDuplicate) => {
 
           <div className="section-title" style={{ fontSize: 14, marginBottom: 12 }}>Question Sections</div>
           <div className="grid-4 mb-4">
-            {[["MCQ", "badge-blue", "mcq"], ["Short Answer", "badge-purple", "short"], ["Coding", "badge-accent", "coding"], ["Image-based", "badge-amber", "image"]].map(([label, cls, type]) => (
-              <div key={type} className="p-3 rounded text-center" style={{ background: "var(--bg3)", border: "1px dashed var(--border2)", cursor: "pointer" }}>
-                <span className={`badge ${cls}`}>{label}</span>
-                <div className="text-xs text-faint mt-2">+ Add questions</div>
-              </div>
-            ))}
+            {[
+                ["MCQ", "badge-blue", "mcq"],
+                ["Short Answer", "badge-purple", "short"],
+                ["Coding", "badge-accent", "coding"],
+                ["Image-based", "badge-amber", "image"],
+              ].map(([label, cls, type]) => (
+                <div
+                  key={type}
+                  className="p-3 rounded text-center"
+                  style={{
+                    background: questionType === type ? "var(--primary-soft)" : "var(--bg3)",
+                    border:
+                      questionType === type
+                        ? "1px solid var(--primary)"
+                        : "1px dashed var(--border2)",
+                    cursor: "pointer",
+                  }}
+                  onClick={() => openQuestionForm(type)}
+                >
+                  <span className={`badge ${cls}`}>{label}</span>
+                  <div className="text-xs text-faint mt-2">+ Add questions</div>
+                </div>
+              ))}
           </div>
+          {questionType && (
+  <div className="card mb-4" style={{ background: "var(--bg2)" }}>
+    <div className="section-title" style={{ fontSize: 14, marginBottom: 12 }}>
+      Add {questionType === "mcq" ? "MCQ" : questionType} Question
+    </div>
 
+    <div className="grid-2 mb-3">
+      <div className="form-group">
+        <label className="form-label">Topic</label>
+        <input
+          className="input"
+          placeholder="e.g. Arrays, OS Scheduling, Network Security"
+          value={newQuestion.topic}
+          onChange={(e) => handleQuestionChange("topic", e.target.value)}
+        />
+      </div>
+
+      <div className="form-group">
+        <label className="form-label">Marks</label>
+        <input
+          className="input"
+          type="number"
+          placeholder="1"
+          value={newQuestion.marks}
+          onChange={(e) => handleQuestionChange("marks", e.target.value)}
+        />
+      </div>
+    </div>
+
+    <div className="form-group mb-3">
+      <label className="form-label">Question</label>
+      <textarea
+        className="input"
+        rows={3}
+        placeholder="Enter your question..."
+        style={{ resize: "vertical" }}
+        value={newQuestion.questionText}
+        onChange={(e) => handleQuestionChange("questionText", e.target.value)}
+      />
+    </div>
+
+    {questionType === "mcq" && (
+      <div className="mb-3">
+        <label className="form-label">Options</label>
+
+        {newQuestion.options.map((option, index) => (
+          <div key={index} className="flex gap-2 mb-2 items-center">
+            <input
+              type="radio"
+              name="correctOption"
+              checked={newQuestion.correctOption === index}
+              onChange={() => handleQuestionChange("correctOption", index)}
+            />
+
+            <input
+              className="input"
+              placeholder={`Option ${index + 1}`}
+              value={option}
+              onChange={(e) => handleOptionChange(index, e.target.value)}
+            />
+          </div>
+        ))}
+
+        <div className="text-xs text-faint">
+          Select the radio button beside the correct answer.
+        </div>
+      </div>
+    )}
+
+    {questionType !== "mcq" && (
+      <div className="text-sm text-faint mb-3">
+        For now, only MCQ saving is fully functional. We will add this question type next.
+      </div>
+    )}
+
+    <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
+      <button
+        className="btn btn-secondary"
+        onClick={() => setQuestionType(null)}
+      >
+        Cancel Question
+      </button>
+
+      <button className="btn btn-primary" onClick={handleAddQuestionToQuiz}>
+        <Icon name="plus" size={14} /> Add Question
+      </button>
+    </div>
+  </div>
+)}
+{editingQuizId && (
+  <div className="mb-4">
+    <div className="section-title" style={{ fontSize: 14, marginBottom: 12 }}>
+      Added Questions
+    </div>
+
+    {quizzes.find((q) => q.id === editingQuizId)?.questionList?.length > 0 ? (
+      quizzes
+        .find((q) => q.id === editingQuizId)
+        .questionList.map((question, index) => (
+          <div
+            key={question.id}
+            className="p-3 rounded mb-2"
+            style={{ background: "var(--bg3)", border: "1px solid var(--border)" }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <div className="text-sm font-semibold">
+                  Q{index + 1}. {question.questionText}
+                </div>
+                <div className="text-xs text-faint mt-1">
+                  {question.type.toUpperCase()} • {question.topic || "No topic"} • {question.marks} mark(s)
+                </div>
+              </div>
+
+              <span className="badge badge-blue">
+                {question.type}
+              </span>
+            </div>
+          </div>
+        ))
+    ) : (
+      <div className="text-sm text-faint">
+        No questions added yet.
+      </div>
+    )}
+  </div>
+)}
           <div className="flex gap-2" style={{ justifyContent: "flex-end" }}>
             <button
             className="btn btn-secondary"
