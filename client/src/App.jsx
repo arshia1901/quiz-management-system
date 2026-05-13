@@ -650,6 +650,29 @@ const handleAddQuestionToQuiz = () => {
 
   setQuestionType(null);
 };
+const handleDeleteQuestionFromQuiz = (questionId) => {
+  if (!editingQuizId) return;
+
+  const confirmDelete = window.confirm("Delete this question?");
+
+  if (!confirmDelete) return;
+
+  setQuizzes((prev) =>
+    prev.map((quiz) => {
+      if (quiz.id !== editingQuizId) return quiz;
+
+      const updatedQuestions = (quiz.questionList || []).filter(
+        (question) => question.id !== questionId
+      );
+
+      return {
+        ...quiz,
+        questionList: updatedQuestions,
+        questions: updatedQuestions.length,
+      };
+    })
+  );
+};
 
   return (
     <div className="fade-in">
@@ -893,9 +916,18 @@ const handleAddQuestionToQuiz = () => {
                 </div>
               </div>
 
-              <span className="badge badge-blue">
-                {question.type}
-              </span>
+              <div className="flex items-center gap-2">
+  <span className="badge badge-blue">
+    {question.type}
+  </span>
+
+  <button
+    className="btn btn-danger btn-sm btn-icon"
+    onClick={() => handleDeleteQuestionFromQuiz(question.id)}
+  >
+    <Icon name="trash" size={12} />
+  </button>
+</div>
             </div>
           </div>
         ))
