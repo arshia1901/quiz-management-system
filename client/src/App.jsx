@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback,useMemo  } from "react";
 import {
   SAMPLE_QUIZZES,
   SAMPLE_STUDENTS,
@@ -1413,325 +1413,529 @@ function QuestionPool() {
 }
 
 // ─── Coding Interface ──────────────────────────────────────────────────────────
-function CodingInterface() {
-
-  const [question, setQuestion] = useState(null);
-  const [lang, setLang] = useState("python");
-  const [code, setCode] = useState("");
-  const [output, setOutput] = useState("");
-  const [running, setRunning] = useState(false);
-  const [activeTab, setActiveTab] = useState("output");
-  const [customInput, setCustomInput] = useState("");
-  const [verdict, setVerdict] = useState("");
-  const [testResults, setTestResults] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(5400);
-  const [warnings, setWarnings] = useState(0);
-
-  const [leftWidth, setLeftWidth] = useState(45);
-  const isDragging = useRef(false);
-
-  // ---------------- FETCH QUESTION ----------------
+function CodingInterface({ quizzes, quizId }) {
+ 
+  // ── derive the active quiz & its coding questions ──────────────────────────
+  const activeQuiz = useMemo(
+    () => quizzes?.find((q) => q.id === quizId) || quizzes?.[0] || null,
+    [quizzes, quizId]
+  );
+ 
+  const codingQuestions = useMemo(
+    () => (activeQuiz?.questionList || []).filter((q) => q.type === "coding"),
+    [activeQuiz]
+  );
+ 
+  // ── state ──────────────────────────────────────────────────────────────────
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [lang, setLang]                   = useState("python");
+  const [codeMap, setCodeMap]             = useState({});   // { `${qId}_${lang}`: code }
+  const [output, setOutput]               = useState("");
+  const [running, setRunning]             = useState(false);
+  const [submitting, setSubmitting]       = useState(false);
+  const [activeTab, setActiveTab]         = useState("output");
+  const [customInput, setCustomInput]     = useState("");
+  const [verdict, setVerdict]             = useState("");
+  const [testResults, setTestResults]     = useState([]);
+  const [timeLeft, setTimeLeft]           = useState(
+    (activeQuiz?.duration || 30) * 60
+  );
+  const [warnings, setWarnings]           = useState(0);
+  const [leftWidth, setLeftWidth]         = useState(45);
+  const isDragging                        = useRef(false);
+ 
+  // ── current question ───────────────────────────────────────────────────────
+  const question = codingQuestions[questionIndex] || null;
+ 
+  // ── code for (question, language) pair ────────────────────────────────────
+  const codeKey = question ? `${question.id}_${lang}` : null;
+ 
+  const code = codeKey
+    ? (codeMap[codeKey] ??
+        (lang === "python"
+          ? question?.starterCode ||
+            `def solve():\n    # write your solution here\n    pass\n\nsolve()`
+          : lang === "cpp"
+          ? `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // write your solution here\n    return 0;\n}`
+          : lang === "java"
+          ? `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        // write your solution here\n    }\n}`
+          : `#include <stdio.h>\n\nint main() {\n    // write your solution here\n    return 0;\n}`))
+    : "";
+ 
+  const setCode = (val) => {
+    if (!codeKey) return;
+    setCodeMap((prev) => ({ ...prev, [codeKey]: val }));
+  };
+ 
+  // ── timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
-    axios.get("http://localhost:5000/question")
-      .then(res => {
-        const q = res.data;
-        setQuestion(q);
-        setCode(q?.starterCode?.python || "");
-      })
-      .catch(err => console.log(err));
+    const t = setInterval(() => setTimeLeft((p) => (p > 0 ? p - 1 : 0)), 1000);
+    return () => clearInterval(t);
   }, []);
-
-  // ---------------- TIMER ----------------
+ 
+  // ── tab-switch detection ───────────────────────────────────────────────────
   useEffect(() => {
-    const timer = setInterval(() => {
-      setTimeLeft(prev => prev > 0 ? prev - 1 : 0);
-    }, 1000);
-
-    return () => clearInterval(timer);
+    const handle = () => { if (document.hidden) setWarnings((p) => p + 1); };
+    document.addEventListener("visibilitychange", handle);
+    return () => document.removeEventListener("visibilitychange", handle);
   }, []);
-
-  // ---------------- CHEATING DETECTION ----------------
+ 
+  // ── resize drag ───────────────────────────────────────────────────────────
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.hidden) {
-        setWarnings(prev => prev + 1);
-      }
-    };
-
-    document.addEventListener("visibilitychange", handleVisibility);
-    return () => document.removeEventListener("visibilitychange", handleVisibility);
-  }, []);
-
-  // ---------------- RESIZE ----------------
-  useEffect(() => {
-    const handleMouseMove = (e) => {
+    const onMove = (e) => {
       if (!isDragging.current) return;
-
-      const newWidth = (e.clientX / window.innerWidth) * 100;
-
-      if (newWidth >= 25 && newWidth <= 75) {
-        setLeftWidth(newWidth);
-      }
+      const pct = (e.clientX / window.innerWidth) * 100;
+      if (pct >= 25 && pct <= 75) setLeftWidth(pct);
     };
-
-    const stopDrag = () => {
-      isDragging.current = false;
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", stopDrag);
-
+    const onUp = () => { isDragging.current = false; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
     return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", stopDrag);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
     };
   }, []);
-
-  // ---------------- HELPERS ----------------
-  const formatTime = (secs) => {
-    const h = Math.floor(secs / 3600);
-    const m = Math.floor((secs % 3600) / 60);
-    const s = secs % 60;
-
-    return `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}`;
+ 
+  // ── helpers ────────────────────────────────────────────────────────────────
+  const formatTime = (s) =>
+    `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(
+      Math.floor((s % 3600) / 60)
+    ).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+ 
+  // Judge0 language IDs
+  const LANG_ID = { python: 71, cpp: 54, java: 62, c: 50 };
+ 
+  // parse "Input: ...\nOutput: ..." blocks from testCases textarea
+  const parseTestCases = (raw = "") => {
+    const blocks = raw.trim().split(/\n\s*\n/).filter(Boolean);
+    return blocks.map((block, i) => {
+      const inMatch  = block.match(/Input:\s*(.+?)(?=Output:|$)/si);
+      const outMatch = block.match(/Output:\s*(.+)/si);
+      return {
+        id: i + 1,
+        input:  inMatch  ? inMatch[1].trim()  : "",
+        expected: outMatch ? outMatch[1].trim() : "",
+      };
+    });
   };
-
-  // ---------------- LANGUAGE SWITCH ----------------
-  const handleLanguageChange = (language) => {
-    setLang(language);
-    setCode(question?.starterCode?.[language] || "");
-  };
-
-  // ---------------- RUN CODE ----------------
+ 
+  // ── run (sample test cases only) ──────────────────────────────────────────
   const runCode = async () => {
-    if (!code?.trim()) {
-      setOutput("No code to run");
-      return;
-    }
-
+    if (!code.trim()) { setOutput("No code to run."); return; }
     setRunning(true);
     setVerdict("");
-    setOutput("");
-
+    setOutput("Running...");
+    
     try {
-      const res = await axios.post("http://localhost:5000/run", {
-        code,
-        language: lang,
-        customInput
+      const res = await fetch("http://localhost:5000/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          language_id: LANG_ID[lang] || 71,
+          stdin: customInput ||
+            (question?.sampleInput ? question.sampleInput : ""),
+        }),
       });
+     const data = await res.json();
+const rawOutput = data.output || data.error || "No output";
+setOutput(rawOutput);
 
-      setVerdict(res.data?.verdict || "");
-      setOutput(res.data?.output || "");
-      setTestResults(res.data?.testResults || []);
+if (activeTab === "custom" && question?.sampleOutput) {
+  // normalize: trim each line, remove empty lines, rejoin
+  const normalize = (s) =>
+    s.split("\n")
+     .map((l) => l.trim())
+     .filter((l) => l.length > 0)
+     .join("\n");
 
-    } catch (err) {
-      console.log(err);
-      setOutput("Error running code");
+  const got      = normalize(rawOutput);
+  const expected = normalize(question.sampleOutput);
+
+  console.log("GOT:", JSON.stringify(got));
+  console.log("EXPECTED:", JSON.stringify(expected));
+
+  setVerdict(got === expected ? "Accepted" : "Wrong Answer");
+} else {
+  setVerdict(data.verdict || "");
+
+}
+    } catch {
+      setOutput("Error: could not reach execution server.");
     }
-
     setRunning(false);
   };
-
-  // ---------------- LOADING ----------------
+ 
+  // ── submit (hidden test cases) ─────────────────────────────────────────────
+  const submitCode = async () => {
+    if (!code.trim()) { setOutput("No code to submit."); return; }
+    setSubmitting(true);
+    setVerdict("Judging…");
+    setTestResults([]);
+    setActiveTab("tests");
+    try {
+      const hiddenCases = parseTestCases(question?.testCases || "");
+      // fall back to sample if no hidden cases defined
+      const cases = hiddenCases.length
+        ? hiddenCases
+        : [{ id: 1, input: question?.sampleInput || "", expected: question?.sampleOutput || "" }];
+ 
+      const res = await fetch("http://localhost:5000/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          language_id: LANG_ID[lang] || 71,
+          test_cases: cases,
+          question_id: question?.id,
+        }),
+      });
+      const data = await res.json();
+      setVerdict(data.verdict || "");
+      setTestResults(data.test_results || []);
+    } catch {
+      setVerdict("Error");
+      setOutput("Error: could not reach execution server.");
+    }
+    setSubmitting(false);
+  };
+ 
+  // ── empty state ────────────────────────────────────────────────────────────
   if (!question) {
-    return <div style={{ padding: 40 }}>Loading Question...</div>;
+    return (
+      <div className="fade-in" style={{ padding: 40, textAlign: "center" }}>
+        <div className="section-title">No Coding Questions</div>
+        <div className="section-subtitle" style={{ marginTop: 8 }}>
+          {activeQuiz
+            ? "This quiz has no coding questions yet. Ask your instructor to add some."
+            : "No quiz found. Please contact your instructor."}
+        </div>
+      </div>
+    );
   }
-
-  // ---------------- UI ----------------
+ 
+  // ── main layout ────────────────────────────────────────────────────────────
   return (
-    <div className="fade-in" style={{ height: "calc(100vh - 100px)" }}>
-
-      <div style={{ display: "flex", height: "100%" }}>
-
-        {/* LEFT PANEL */}
+    <div className="fade-in" style={{ height: "calc(100vh - 100px)", display: "flex", flexDirection: "column" }}>
+ 
+      {/* ── Top bar: quiz title + question tabs ── */}
+      <div style={{
+        padding: "8px 16px",
+        background: "var(--bg2)",
+        borderBottom: "1px solid var(--border)",
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        flexWrap: "wrap",
+      }}>
+        <span style={{ fontWeight: 700, fontSize: 13 }}>
+          {activeQuiz?.title || "Quiz"}
+        </span>
+ 
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {codingQuestions.map((q, i) => (
+            <button
+              key={q.id}
+              className={`btn btn-sm ${i === questionIndex ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => {
+                setQuestionIndex(i);
+                setVerdict("");
+                setOutput("");
+                setTestResults([]);
+              }}
+            >
+              Q{i + 1}
+            </button>
+          ))}
+        </div>
+ 
+        <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+          <span className="badge badge-purple">⏱ {formatTime(timeLeft)}</span>
+          {warnings > 0 && (
+            <span className="badge badge-red">⚠ {warnings} warning{warnings > 1 ? "s" : ""}</span>
+          )}
+        </div>
+      </div>
+ 
+      {/* ── Split pane ── */}
+      <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+ 
+        {/* LEFT – problem statement */}
         <div style={{
           width: `${leftWidth}%`,
           borderRight: "1px solid var(--border)",
           overflowY: "auto",
-          background: "var(--bg2)"
+          background: "var(--bg2)",
+          display: "flex",
+          flexDirection: "column",
         }}>
-
           <div style={{
-            padding: "16px 20px",
+            padding: "14px 18px",
             borderBottom: "1px solid var(--border)",
             display: "flex",
             alignItems: "center",
-            gap: 10
+            gap: 8,
           }}>
-            <span className="badge badge-green">{question.difficulty}</span>
-            <span style={{ fontWeight: 600 }}>{question.title}</span>
-            <span className="badge badge-blue" style={{ marginLeft: "auto" }}>
-              {question.topic}
+            <span className="badge badge-blue">{question.topic || "General"}</span>
+            <span style={{ fontWeight: 700, fontSize: 14 }}>{question.problemTitle}</span>
+            <span className="badge badge-gray" style={{ marginLeft: "auto" }}>
+              {question.marks} mark{question.marks !== 1 ? "s" : ""}
             </span>
           </div>
-
-          <div style={{ padding: 20 }}>
-            <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-              <span className="badge badge-purple">
-                ⏱ {formatTime(timeLeft)}
-              </span>
-
-              <span className="badge badge-red">
-                Warnings: {warnings}
-              </span>
+ 
+          <div style={{ padding: "16px 18px", flex: 1 }}>
+            {/* Description */}
+            <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text2)", marginBottom: 16 }}>
+              {question.problemDescription}
             </div>
-
-            <p style={{
-              fontSize: 13,
-              lineHeight: 1.8,
-              color: "var(--text2)"
-            }}>
-              {question.description}
-            </p>
+ 
+            {/* Optional image */}
+            {question.imageData && (
+              <img
+                src={question.imageData}
+                alt="Problem illustration"
+                style={{
+                  maxWidth: "100%", borderRadius: 10,
+                  border: "1px solid var(--border)", marginBottom: 16,
+                }}
+              />
+            )}
+ 
+            {/* Constraints */}
+            {question.constraints && (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: "var(--text3)" }}>
+                  CONSTRAINTS
+                </div>
+                <pre style={{
+                  fontSize: 12, background: "var(--bg3)", borderRadius: 8,
+                  padding: "8px 12px", fontFamily: "var(--mono)", whiteSpace: "pre-wrap",
+                }}>
+                  {question.constraints}
+                </pre>
+              </div>
+            )}
+ 
+            {/* Sample I/O */}
+            {(question.sampleInput || question.sampleOutput) && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "var(--text3)" }}>
+                  EXAMPLE
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 3 }}>Input</div>
+                    <pre style={{
+                      fontSize: 12, background: "var(--bg3)", borderRadius: 8,
+                      padding: "8px 12px", fontFamily: "var(--mono)", whiteSpace: "pre-wrap",
+                    }}>
+                      {question.sampleInput}
+                    </pre>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 3 }}>Output</div>
+                    <pre style={{
+                      fontSize: 12, background: "var(--bg3)", borderRadius: 8,
+                      padding: "8px 12px", fontFamily: "var(--mono)", whiteSpace: "pre-wrap",
+                    }}>
+                      {question.sampleOutput}
+                    </pre>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
-
+ 
         {/* RESIZE HANDLE */}
         <div
-          onMouseDown={() => isDragging.current = true}
-          style={{
-            width: "5px",
-            cursor: "col-resize",
-            background: "var(--border)"
-          }}
+          onMouseDown={() => { isDragging.current = true; }}
+          style={{ width: 5, cursor: "col-resize", background: "var(--border)", flexShrink: 0 }}
         />
-
-        {/* RIGHT PANEL */}
+ 
+        {/* RIGHT – editor + output */}
         <div style={{
           width: `${100 - leftWidth}%`,
           display: "flex",
           flexDirection: "column",
-          height: "100%",
-          background: "var(--bg)"
+          background: "var(--bg)",
         }}>
-
-          {/* TOP BAR */}
+ 
+          {/* Editor toolbar */}
           <div style={{
             padding: "8px 12px",
             background: "var(--bg2)",
             borderBottom: "1px solid var(--border)",
             display: "flex",
             alignItems: "center",
-            gap: 8
+            gap: 8,
           }}>
-
             <select
-              className="select"
+              className="input"
+              style={{ width: 130, padding: "4px 8px", fontSize: 12 }}
               value={lang}
-              onChange={e => handleLanguageChange(e.target.value)}
+              onChange={(e) => setLang(e.target.value)}
             >
-              <option value="python">Python</option>
-              <option value="cpp">C++17</option>
+              <option value="python">Python 3</option>
+              <option value="cpp">C++ 17</option>
               <option value="java">Java 17</option>
               <option value="c">C99</option>
             </select>
-
+ 
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button
                 className="btn btn-secondary btn-sm"
                 onClick={runCode}
-                disabled={running}
+                disabled={running || submitting}
               >
-                {running ? "Running..." : "Run"}
+                {running ? "Running…" : "▶ Run"}
               </button>
-
               <button
                 className="btn btn-primary btn-sm"
-                onClick={runCode}
+                onClick={submitCode}
+                disabled={running || submitting}
               >
-                Submit
+                {submitting ? "Submitting…" : "Submit"}
               </button>
             </div>
           </div>
-
-          {/* EDITOR */}
-          <div style={{ flex: 1 }}>
-            <Editor
-              height="100%"
-              language={lang}
-              value={code}
-              onChange={(value) => setCode(value || "")}
-              theme="vs-dark"
-              options={{
-                fontSize: 14,
-                minimap: { enabled: false },
-                automaticLayout: true
-              }}
-            />
+ 
+          {/* Monaco editor — uses the global Editor from @monaco-editor/react */}
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            {typeof Editor !== "undefined" ? (
+              <Editor
+                height="100%"
+                language={lang === "cpp" ? "cpp" : lang}
+                value={code}
+                onChange={(val) => setCode(val || "")}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: false },
+                  automaticLayout: true,
+                  scrollBeyondLastLine: false,
+                }}
+              />
+            ) : (
+              /* Fallback plain textarea if Monaco isn't loaded */
+              <textarea
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                spellCheck={false}
+                style={{
+                  width: "100%", height: "100%", resize: "none",
+                  background: "#1e1e1e", color: "#d4d4d4",
+                  fontFamily: "var(--mono, monospace)", fontSize: 14,
+                  border: "none", outline: "none", padding: 16,
+                  boxSizing: "border-box",
+                }}
+              />
+            )}
           </div>
-
-          {/* OUTPUT PANEL */}
+ 
+          {/* Output / Test panel */}
           <div style={{
             height: 260,
             borderTop: "1px solid var(--border)",
-            background: "var(--bg2)"
+            background: "var(--bg2)",
+            display: "flex",
+            flexDirection: "column",
           }}>
-
+            {/* Tabs */}
             <div style={{
               display: "flex",
-              gap: 6,
-              padding: 12,
-              borderBottom: "1px solid var(--border)"
+              gap: 4,
+              padding: "8px 12px",
+              borderBottom: "1px solid var(--border)",
+              alignItems: "center",
             }}>
-
-              {["output","tests","custom"].map(tab => (
+              {["output", "tests", "custom"].map((tab) => (
                 <button
                   key={tab}
-                  className={`tab ${activeTab === tab ? "active" : ""}`}
+                  className={`btn btn-sm ${activeTab === tab ? "btn-primary" : "btn-ghost"}`}
                   onClick={() => setActiveTab(tab)}
+                  style={{ textTransform: "capitalize" }}
                 >
                   {tab}
                 </button>
               ))}
-
+ 
               {verdict && (
-                <span className={`badge ${verdict === "Accepted" ? "badge-green" : "badge-red"}`}
-                  style={{ marginLeft: "auto" }}>
+                <span
+                  className={`badge ${
+                    verdict === "Accepted" ? "badge-green" :
+                    verdict === "Judging…" ? "badge-purple" :
+                    "badge-red"
+                  }`}
+                  style={{ marginLeft: "auto" }}
+                >
                   {verdict}
                 </span>
               )}
-
             </div>
-
-            <div style={{ padding: 12, overflowY: "auto", height: "calc(100% - 50px)" }}>
-
+ 
+            {/* Panel body */}
+            <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
+ 
               {activeTab === "output" && (
-                <pre style={{ fontFamily: "var(--mono)", fontSize: 12 }}>
-                  {output || "Run your code to see output..."}
+                <pre style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, whiteSpace: "pre-wrap" }}>
+                  {output || "Click Run to execute your code against the sample input…"}
                 </pre>
               )}
-
-              {activeTab === "tests" && (testResults || []).map(r => (
-                <div key={r.id} style={{
-                  background: r.pass ? "rgba(0,255,0,0.08)" : "rgba(255,0,0,0.08)",
-                  padding: 12,
-                  borderRadius: 8,
-                  marginBottom: 10
-                }}>
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <span>{r.pass ? "✓" : "✗"} Test Case {r.id}</span>
-                    <span>{r.time}</span>
-                  </div>
-                </div>
-              ))}
-
-              {activeTab === "custom" && (
-                <textarea
-                  className="input"
-                  value={customInput}
-                  onChange={e => setCustomInput(e.target.value)}
-                  style={{ width: "100%", height: 100 }}
-                />
+ 
+              {activeTab === "tests" && (
+                testResults.length === 0
+                  ? <div className="text-sm text-faint">Submit your code to see test results.</div>
+                  : testResults.map((r) => (
+                    <div key={r.id} style={{
+                      background: r.pass ? "rgba(0,200,100,0.08)" : "rgba(255,70,70,0.08)",
+                      border: `1px solid ${r.pass ? "rgba(0,200,100,0.3)" : "rgba(255,70,70,0.3)"}`,
+                      padding: "10px 12px",
+                      borderRadius: 8,
+                      marginBottom: 8,
+                      fontSize: 12,
+                    }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                        <span style={{ fontWeight: 600 }}>
+                          {r.pass ? "✓" : "✗"} Test Case {r.id}
+                        </span>
+                        <span className="text-faint">{r.time || ""}</span>
+                      </div>
+                      {!r.pass && (
+                        <div style={{ fontFamily: "var(--mono, monospace)", color: "var(--text3)" }}>
+                          <div>Expected: <span style={{ color: "var(--green)" }}>{r.expected}</span></div>
+                          <div>Got:      <span style={{ color: "var(--red)"   }}>{r.got}</span></div>
+                        </div>
+                      )}
+                      {r.error && (
+                        <div style={{ color: "var(--red)", fontFamily: "var(--mono, monospace)", marginTop: 4 }}>
+                          {r.error}
+                        </div>
+                      )}
+                    </div>
+                  ))
               )}
-
+ 
+              {activeTab === "custom" && (
+                <div>
+                  <div className="text-xs text-faint" style={{ marginBottom: 6 }}>
+                    Custom stdin (used when you click Run):
+                  </div>
+                  <textarea
+                    className="input"
+                    value={customInput}
+                    onChange={(e) => setCustomInput(e.target.value)}
+                    rows={5}
+                    style={{ width: "100%", fontFamily: "var(--mono, monospace)", fontSize: 12, resize: "vertical" }}
+                    placeholder="Enter custom input here…"
+                  />
+                </div>
+              )}
+ 
             </div>
-
           </div>
-
         </div>
-
       </div>
-
     </div>
   );
 }
@@ -2331,8 +2535,8 @@ useEffect(() => {
     case "questions":
       return <QuestionPool />;
 
-    case "coding":
-      return <CodingInterface />;
+   case "coding":
+  return <CodingInterface quizzes={quizzes} />;
 
     case "ai":
       return <AIGenerator />;
