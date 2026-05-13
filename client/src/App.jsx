@@ -447,9 +447,10 @@ function StudentDashboard({ setPage, quizzes, currentUser }) {
 }
 
 // ─── Quiz Manager (Teacher) ────────────────────────────────────────────────────
-function QuizManager({quizzes, setQuizzes, batches}) {
+function QuizManager({quizzes, setQuizzes, batches, attempts}) {
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
+  const [resultsQuiz, setResultsQuiz] = useState(null);
 
   const [questionType, setQuestionType] = useState(null);
   const [newQuestion, setNewQuestion] = useState({
@@ -816,6 +817,82 @@ const handleDeleteQuestionFromQuiz = (questionId) => {
     })
   );
 };
+if (resultsQuiz) {
+  const quizAttempts = attempts.filter(
+    (attempt) => attempt.quizId === resultsQuiz.id
+  );
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="section-title">Results: {resultsQuiz.title}</div>
+          <div className="section-subtitle">
+            Student attempts submitted for this quiz
+          </div>
+        </div>
+
+        <button
+          className="btn btn-secondary"
+          onClick={() => setResultsQuiz(null)}
+        >
+          Back to Quizzes
+        </button>
+      </div>
+
+      {quizAttempts.length === 0 ? (
+        <div className="card">
+          <div className="text-sm text-faint">
+            No student attempts submitted yet.
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <div className="section-title" style={{ fontSize: 16, marginBottom: 12 }}>
+            Submitted Attempts
+          </div>
+
+          {quizAttempts.map((attempt) => (
+            <div
+              key={attempt.id}
+              className="p-3 rounded mb-2"
+              style={{
+                background: "var(--bg2)",
+                border: "1px solid var(--border)",
+              }}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <div className="text-sm" style={{ fontWeight: 600 }}>
+                    {attempt.studentName}
+                  </div>
+                  <div className="text-xs text-faint">
+                    {attempt.studentEmail}
+                  </div>
+                  <div className="text-xs text-faint mt-1">
+                    Submitted: {attempt.submittedAt}
+                  </div>
+                </div>
+
+                <div className="flex gap-2 items-center">
+                  <span className="badge badge-blue">
+                    {attempt.answeredCount}/{attempt.totalQuestions} answered
+                  </span>
+
+                  {attempt.violations > 0 && (
+                    <span className="badge badge-amber">
+                      {attempt.violations} violation(s)
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
   return (
     <div className="fade-in">
@@ -1397,7 +1474,12 @@ Output: 1 2`}
                 >
                   <Icon name="edit" size={12} /> Edit
                 </button>
-                <button className="btn btn-ghost btn-sm flex-1"><Icon name="chart" size={12} /> Results</button>
+                <button
+  className="btn btn-ghost btn-sm flex-1"
+  onClick={() => setResultsQuiz(q)}
+>
+  <Icon name="chart" size={12} /> Results
+</button>
                 <button
                 className="btn btn-ghost btn-sm btn-icon"
                 onClick={() => handleDuplicateQuiz(q)}
@@ -2055,7 +2137,7 @@ if (activeTab === "custom" && question?.sampleOutput) {
   );
 }
 // ─── Quiz Attempt Interface ────────────────────────────────────────────────────
-function QuizAttempt({quiz, setPage}) {
+function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
   const [flagged, setFlagged] = useState([]);
@@ -2139,6 +2221,25 @@ if (questions.length === 0) {
   );
 
   if (!confirmSubmit) return;
+
+   const answeredCount = Object.keys(answers).length;
+
+  const attemptToSave = {
+    id: Date.now(),
+    quizId: quiz.id,
+    quizTitle: quiz.title,
+    studentId: currentUser?.id,
+    studentName: currentUser?.name || "Unknown Student",
+    studentEmail: currentUser?.email || "",
+    batchId: currentUser?.batchId || "",
+    answers,
+    answeredCount,
+    totalQuestions: questions.length,
+    violations,
+    submittedAt: new Date().toLocaleString(),
+  };
+
+  setAttempts((prev) => [attemptToSave, ...prev]);
 
   setSubmitted(true);
 };
@@ -3167,6 +3268,9 @@ export default function App() {
 const [quizzes, setQuizzes] = useState(() =>
   getFromStorage("quizzes", SAMPLE_QUIZZES)
 );
+const [attempts, setAttempts] = useState(() =>
+  getFromStorage("attempts", [])
+);
 
 const [batches, setBatches] = useState(() =>
   getFromStorage("batches", SAMPLE_BATCHES)
@@ -3175,6 +3279,9 @@ const [batches, setBatches] = useState(() =>
 useEffect(() => {
   saveToStorage("quizzes", quizzes);
 }, [quizzes]);
+useEffect(() => {
+  saveToStorage("attempts", attempts);
+}, [attempts]);
 
 useEffect(() => {
   saveToStorage("batches", batches);
@@ -3246,6 +3353,7 @@ useEffect(() => {
       quizzes={quizzes}
       setQuizzes={setQuizzes}
       batches={batches}
+      attempts={attempts}
     />
   ) : (
     <div className="fade-in">
@@ -3313,7 +3421,7 @@ case "questions":
       return <Notifications />;
 
     case "attempt":
-  return <QuizAttempt quiz={selectedQuiz} setPage={setPage} />;
+  return (<QuizAttempt quiz={selectedQuiz} setPage={setPage} currentUser={currentUser} setAttempts={setAttempts} />);
 
     default:
       return null;
