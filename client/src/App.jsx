@@ -3963,9 +3963,7 @@ useEffect(() => {
     fetchUsers();
   }
 
-  if (role === "student") {
-    fetchAttempts();
-  }
+  fetchAttempts();
 }, [authed, role]);
 
 // ─── REPLACEMENT for the fetchQuizzes function in app.jsx ────────────────────
@@ -4078,7 +4076,15 @@ const fetchUsers = async () => {
 
 const fetchAttempts = async () => {
   try {
-    const data = await attemptsAPI.listMine();
+    if (!currentUser?.role) return;
+
+    const roleValue = currentUser.role.toLowerCase();
+
+    const data =
+      roleValue === "teacher"
+        ? await attemptsAPI.listTeacher()
+        : await attemptsAPI.listMine();
+
     setAttempts(data);
   } catch (e) {
     console.error("fetchAttempts:", e);
@@ -4164,10 +4170,12 @@ const fetchAttempts = async () => {
             (q) => q.status === "live" && q.batchId === currentUser?.batchId
           )
           .map((q) => {
-            const existingAttempt = attempts.find(
-              (attempt) =>
-                attempt.quizId === q.id && attempt.studentId === currentUser?.id
-            );
+            const currentStudentId = currentUser?.id || currentUser?.user_id;
+
+const existingAttempt = attempts.find(
+  (attempt) =>
+    attempt.quizId === q.id && attempt.studentId === currentStudentId
+);
             return (
             <div key={q.id} className="quiz-card mb-3">
               <div className="quiz-card-header">

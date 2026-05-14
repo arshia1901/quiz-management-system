@@ -88,6 +88,7 @@ export const attemptsAPI = {
   saveAnswer: (attempt_id, data)     => api.post(`/api/attempts/${attempt_id}/answer`, data),
   submit:     (attempt_id)           => api.post(`/api/attempts/${attempt_id}/submit`, {}),
   violation:  (attempt_id)           => api.post(`/api/attempts/${attempt_id}/violation`, {}),
+  listTeacher: ()                 => api.get("/api/teacher/attempts"),
 };
 
 // ─── Analytics ───────────────────────────────────────────────────────────────

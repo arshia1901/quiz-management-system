@@ -669,12 +669,23 @@ def student_attempts():
               qa.status,
               qa.score,
               qa.submit_time,
-              COALESCE(SUM(qu.marks), 0) AS max_score
+              (
+                SELECT COALESCE(SUM(qmarks.marks), 0)
+                FROM question qmarks
+                WHERE qmarks.quiz_id = qa.quiz_id
+              ) AS max_score,
+              (
+                SELECT COUNT(*)
+                FROM question qcount
+                WHERE qcount.quiz_id = qa.quiz_id
+              ) AS total_questions,
+              (
+                SELECT COUNT(DISTINCT aa.question_id)
+                FROM attempt_answer aa
+                WHERE aa.attempt_id = qa.attempt_id
+              ) AS answered_count
            FROM quiz_attempt qa
-           JOIN quiz q ON q.quiz_id = qa.quiz_id
-           LEFT JOIN question qu ON qu.quiz_id = q.quiz_id
            WHERE qa.student_id = %s
-           GROUP BY qa.attempt_id, qa.quiz_id, qa.student_id, qa.status, qa.score, qa.submit_time
            ORDER BY qa.submit_time DESC NULLS LAST""",
         (request.user_id,),
         fetchall=True
@@ -688,13 +699,108 @@ def student_attempts():
             "status": r["status"],
             "score": float(r["score"] or 0),
             "maxScore": float(r["max_score"] or 0),
+            "answeredCount": int(r["answered_count"] or 0),
+            "totalQuestions": int(r["total_questions"] or 0),
             "submittedAt": r["submit_time"].isoformat() if r["submit_time"] else "",
             "evaluated": r["status"] == "completed",
             "finalScore": float(r["score"] or 0),
         }
         for r in rows
     ])
+@app.route("/api/teacher/attempts", methods=["GET"])
+@require_auth(roles=["TEACHER", "ADMIN"])
+def teacher_attempts():
+    rows = query(
+        """SELECT
+              qa.attempt_id,
+              qa.quiz_id,
+              qa.student_id,
+              qa.status,
+              qa.score,
+              qa.submit_time,
+              q.title AS quiz_title,
+              u.name AS student_name,
+              u.email AS student_email,
+              (
+  SELECT COALESCE(SUM(qmarks.marks), 0)
+  FROM question qmarks
+  WHERE qmarks.quiz_id = q.quiz_id
+) AS max_score,
+(
+  SELECT COUNT(*)
+  FROM question qcount
+  WHERE qcount.quiz_id = q.quiz_id
+) AS total_questions,
+COUNT(DISTINCT aa.question_id) AS answered_count
+           FROM quiz_attempt qa
+           JOIN quiz q ON q.quiz_id = qa.quiz_id
+           JOIN users u ON u.user_id = qa.student_id
+           
+           LEFT JOIN attempt_answer aa ON aa.attempt_id = qa.attempt_id
+           WHERE q.created_by = %s
+           GROUP BY
+              qa.attempt_id,
+              qa.quiz_id,
+              qa.student_id,
+              qa.status,
+              qa.score,
+              qa.submit_time,
+              q.quiz_id,
+              q.title,
+              u.name,
+              u.email
+           ORDER BY qa.submit_time DESC NULLS LAST""",
+        (request.user_id,),
+        fetchall=True
+    )
 
+    result = []
+
+    for r in rows:
+        answer_rows = query(
+            """SELECT
+                  qu.question_id,
+                  qu.type,
+                  aa.answer_text,
+                  oc.display_order AS selected_index
+               FROM question qu
+               LEFT JOIN attempt_answer aa
+                    ON aa.question_id = qu.question_id
+                   AND aa.attempt_id = %s
+               LEFT JOIN option_choice oc
+                    ON oc.option_id = aa.selected_option
+               WHERE qu.quiz_id = %s
+               ORDER BY qu.created_at""",
+            (r["attempt_id"], r["quiz_id"]),
+            fetchall=True
+        )
+
+        answers = []
+        for a in answer_rows:
+            if a["type"] == "mcq":
+                answers.append(a["selected_index"])
+            else:
+                answers.append(a["answer_text"] or "")
+
+        result.append({
+            "id": str(r["attempt_id"]),
+            "quizId": str(r["quiz_id"]),
+            "studentId": str(r["student_id"]),
+            "studentName": r["student_name"],
+            "studentEmail": r["student_email"],
+            "quizTitle": r["quiz_title"],
+            "status": r["status"],
+            "score": float(r["score"] or 0),
+            "maxScore": float(r["max_score"] or 0),
+            "answeredCount": int(r["answered_count"] or 0),
+            "totalQuestions": int(r["total_questions"] or 0),
+            "submittedAt": r["submit_time"].isoformat() if r["submit_time"] else "",
+            "evaluated": r["status"] == "completed",
+            "finalScore": float(r["score"] or 0),
+            "answers": answers,
+        })
+
+    return jsonify(result)
 
 @app.route("/api/attempts/<attempt_id>/answer", methods=["POST"])
 @require_auth(roles=["STUDENT"])
