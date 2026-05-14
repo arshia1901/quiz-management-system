@@ -752,8 +752,8 @@ def run_code():
         stderr = result.get("stderr") or ""
         compile_out = result.get("compile_output") or ""
         status = result.get("status", {}).get("description", "")
-        output = stdout or stderr or compile_out or status
-        response = jsonify({"output": output.strip(), "verdict": status})
+        output = stdout or stderr or compile_out or ""
+        response = jsonify({"output": output.strip(), "verdict": status, "stdout": stdout.strip()})
         response.headers.add("Access-Control-Allow-Origin", "*")
         return response
     except Exception as e:

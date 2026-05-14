@@ -1942,8 +1942,9 @@ function CodingInterface({ quizzes, quizId }) {
         }),
       });
       const data = await res.json();
-      const rawOutput = data.output || data.error || "No output";
-      setOutput(rawOutput);
+      const rawOutput = data.output || data.error || "";
+      const actualStdout = data.stdout ?? rawOutput;
+      setOutput(rawOutput || data.verdict || "No output");
 
       if (question?.sampleOutput && !customInput) {
   const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
@@ -2467,39 +2468,45 @@ const [customExpected, setCustomExpected] = useState("");
     setTestResults([]);
   };
 
-  const runCode = async () => {
+ const runCode = async () => {
     if (!code.trim()) { setOutput("No code to run."); return; }
     setRunning(true);
     setVerdict("");
     setOutput("Running…");
-   const stdinToSend = customInput || question?.sampleInput || "";
-setActiveTab("output");
-try {
-  const res = await fetch("http://localhost:8000/run", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      code,
-      language_id: LANG_ID[lang] || 71,
-      stdin: stdinToSend,
-    }),
-  });
+    const stdinToSend = customInput || question?.sampleInput || "";
+    setActiveTab("output");
+    try {
+      const res = await fetch("http://localhost:8000/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          language_id: LANG_ID[lang] || 71,
+          stdin: stdinToSend,
+        }),
+      });
       const data = await res.json();
       const rawOutput = data.output || data.error || "No output";
       setOutput(rawOutput);
-     if (!customInput && question?.sampleOutput) {
-  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
-  setVerdict(norm(rawOutput) === norm(question.sampleOutput) ? "Accepted" : "Wrong Answer");
-} else if (customInput && customExpected) {
-  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
-  setVerdict(norm(rawOutput) === norm(customExpected) ? "Accepted" : "Wrong Answer");
-} else {
-  setVerdict("");
-}
+
+      const norm = (s) =>
+        (s || "").split("\n").map(l => l.trim()).filter(l => l.length > 0).join("\n");
+
+      if (!customInput && question?.sampleOutput) {
+        const got = norm(rawOutput);
+        const expected = norm(question.sampleOutput);
+        setVerdict(got === expected ? "Accepted" : "Wrong Answer");
+      } else if (customInput && customExpected) {
+        const got = norm(rawOutput);
+        const expected = norm(customExpected);
+        setVerdict(got === expected ? "Accepted" : "Wrong Answer");
+      } else {
+        setVerdict("");
+      }
     } catch (err) {
-  setOutput("Error: " + (err?.message || "could not reach execution server."));
-  setVerdict("Error");
-} 
+      setOutput("Error: " + (err?.message || "could not reach execution server."));
+      setVerdict("Error");
+    }
     setRunning(false);
   };
 
