@@ -6,11 +6,6 @@ Install deps:
 
 Run:
   python app.py
-
-Env vars needed (.env in server/):
-  DATABASE_URL=postgresql://postgres:password@localhost:5432/examify
-  JWT_SECRET=your_super_secret_key_here
-  JUDGE0_URL=http://localhost:5000      # your Judge0 instance
 """
 
 import os
@@ -31,31 +26,28 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, 
+CORS(app,
      origins=["http://localhost:5173", "http://localhost:3000"],
      methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-     allow_headers=["Content-Type", "Authorization"],supports_credentials=True)  # Vite / CRA
+     allow_headers=["Content-Type", "Authorization"],
+     supports_credentials=True)
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:sK23102004!@localhost:5432/examify")
 JWT_SECRET   = os.getenv("JWT_SECRET", "examify_dev_secret_change_me")
 JWT_EXPIRY   = int(os.getenv("JWT_EXPIRY_HOURS", 8))
-JUDGE0_URL = os.getenv("JUDGE0_URL", "https://ce.judge0.com")
+JUDGE0_URL   = os.getenv("JUDGE0_URL", "https://ce.judge0.com")
+
+# Idle threshold in seconds — flag as "idle" if no activity for this long
+IDLE_THRESHOLD_SECONDS = int(os.getenv("IDLE_THRESHOLD_SECONDS", 60))
 
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
 def get_db():
-    """Return a new psycopg2 connection (use inside a with-block)."""
     return psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
 
 
 def query(sql, params=(), fetchone=False, fetchall=False, commit=False):
-    """
-    Convenience wrapper.
-      - commit=True  → INSERT / UPDATE / DELETE
-      - fetchone     → SELECT one row as dict
-      - fetchall     → SELECT many rows as list[dict]
-    """
     with get_db() as conn:
         with conn.cursor() as cur:
             cur.execute(sql, params)
@@ -83,7 +75,6 @@ def decode_token(token: str) -> dict:
 
 
 def require_auth(roles=None):
-    """Decorator — verifies Bearer token and optionally checks role."""
     def decorator(f):
         @wraps(f)
         def wrapper(*args, **kwargs):
@@ -100,7 +91,7 @@ def require_auth(roles=None):
             if roles and payload["role"] not in roles:
                 return jsonify({"error": "Forbidden"}), 403
 
-            request.user_id = payload["sub"]
+            request.user_id   = payload["sub"]
             request.user_role = payload["role"]
             return f(*args, **kwargs)
         return wrapper
@@ -113,9 +104,6 @@ def require_auth(roles=None):
 
 @app.route("/api/auth/register", methods=["POST"])
 def register():
-    """
-    Body: { name, email, password, role, department?, designation?, roll_number?, semester? }
-    """
     d = request.json or {}
     name     = (d.get("name") or "").strip()
     email    = (d.get("email") or "").strip().lower()
@@ -127,7 +115,6 @@ def register():
     if role not in ("STUDENT", "TEACHER", "ADMIN"):
         return jsonify({"error": "Invalid role"}), 400
 
-    # check duplicate
     existing = query("SELECT user_id FROM users WHERE email=%s", (email,), fetchone=True)
     if existing:
         return jsonify({"error": "Email already registered"}), 409
@@ -140,7 +127,6 @@ def register():
         (user_id, name, email, pw_hash, role), commit=True
     )
 
-    # profile rows
     if role == "STUDENT":
         query(
             "INSERT INTO student_profile (student_id, roll_number, department, semester) VALUES (%s,%s,%s,%s)",
@@ -158,10 +144,6 @@ def register():
 
 @app.route("/api/auth/login", methods=["POST"])
 def login():
-    """
-    Body: { email, password, role }
-    Returns: { token, user_id, name, role, ... }
-    """
     d = request.json or {}
     email    = (d.get("email") or "").strip().lower()
     password = d.get("password", "")
@@ -192,11 +174,9 @@ def login():
         "role":    user["role"],
     }
 
-    # attach profile extras
     if user["role"] == "STUDENT":
         profile = query(
-            "SELECT batch_enrollment.batch_id FROM batch_enrollment "
-            "WHERE batch_enrollment.student_id = %s LIMIT 1",
+            "SELECT batch_id FROM batch_enrollment WHERE student_id = %s LIMIT 1",
             (str(user["user_id"]),), fetchone=True
         )
         resp["batch_id"] = str(profile["batch_id"]) if profile else None
@@ -211,22 +191,18 @@ def login():
 @app.route("/api/users", methods=["GET"])
 @require_auth(roles=["TEACHER", "ADMIN"])
 def list_users():
-    """Returns all users (teachers only). Query param: ?role=STUDENT"""
     role_filter = request.args.get("role")
     if role_filter:
         rows = query(
-            """SELECT u.user_id, u.name, u.email, u.role, u.created_at,
-                      be.batch_id
+            """SELECT u.user_id, u.name, u.email, u.role, u.created_at, be.batch_id
                FROM users u
                LEFT JOIN batch_enrollment be ON be.student_id = u.user_id
-               WHERE u.role = %s
-               ORDER BY u.name""",
+               WHERE u.role = %s ORDER BY u.name""",
             (role_filter.upper(),), fetchall=True
         )
     else:
         rows = query(
-            """SELECT u.user_id, u.name, u.email, u.role, u.created_at,
-                      be.batch_id
+            """SELECT u.user_id, u.name, u.email, u.role, u.created_at, be.batch_id
                FROM users u
                LEFT JOIN batch_enrollment be ON be.student_id = u.user_id
                ORDER BY u.name""",
@@ -240,6 +216,7 @@ def list_users():
             r["batch_id"] = str(r["batch_id"])
         result.append(r)
     return jsonify(result)
+
 
 @app.route("/api/users/<user_id>", methods=["DELETE"])
 @require_auth(roles=["TEACHER", "ADMIN"])
@@ -260,7 +237,6 @@ def list_batches():
     for b in batches:
         b = dict(b)
         b["batch_id"] = str(b["batch_id"])
-        # attach student list
         students = query(
             """SELECT u.user_id, u.name, u.email
                FROM batch_enrollment be
@@ -291,8 +267,7 @@ def create_batch():
 @app.route("/api/batches/<batch_id>", methods=["DELETE"])
 @require_auth(roles=["TEACHER", "ADMIN"])
 def delete_batch(batch_id):
-    has_quizzes = query("SELECT quiz_id FROM quiz WHERE batch_id=%s LIMIT 1",
-                        (batch_id,), fetchone=True)
+    has_quizzes = query("SELECT quiz_id FROM quiz WHERE batch_id=%s LIMIT 1", (batch_id,), fetchone=True)
     if has_quizzes:
         return jsonify({"error": "Batch has quizzes. Remove them first."}), 409
     query("DELETE FROM batch WHERE batch_id=%s", (batch_id,), commit=True)
@@ -302,7 +277,6 @@ def delete_batch(batch_id):
 @app.route("/api/batches/<batch_id>/enroll", methods=["POST"])
 @require_auth(roles=["TEACHER", "ADMIN"])
 def enroll_student(batch_id):
-    """Body: { student_id }"""
     student_id = (request.json or {}).get("student_id")
     if not student_id:
         return jsonify({"error": "student_id required"}), 400
@@ -328,10 +302,6 @@ def remove_enrollment(batch_id, student_id):
 @app.route("/api/quizzes", methods=["GET"])
 @require_auth()
 def list_quizzes():
-    """
-    Teachers: all their quizzes.
-    Students: live quizzes for their batch.
-    """
     if request.user_role == "TEACHER":
         rows = query(
             """SELECT q.*, b.name AS batch_name
@@ -342,7 +312,6 @@ def list_quizzes():
             (request.user_id,), fetchall=True
         )
     else:
-        # find student's batches
         enrollments = query(
             "SELECT batch_id FROM batch_enrollment WHERE student_id=%s",
             (request.user_id,), fetchall=True
@@ -364,18 +333,12 @@ def list_quizzes():
     for r in (rows or []):
         r = dict(r)
         r["quiz_id"] = str(r["quiz_id"])
-        # question count
-        qc = query("SELECT COUNT(*) AS cnt FROM question WHERE quiz_id=%s",
-                   (r["quiz_id"],), fetchone=True)
-        r["questions"] = qc["cnt"] if qc else 0
-        # attempt count
-        ac = query("SELECT COUNT(*) AS cnt FROM quiz_attempt WHERE quiz_id=%s",
-                   (r["quiz_id"],), fetchone=True)
-        r["attempts"] = ac["cnt"] if ac else 0
-        # avg score
-        avg = query("SELECT AVG(score) AS avg FROM quiz_attempt WHERE quiz_id=%s AND status='completed'",
-                    (r["quiz_id"],), fetchone=True)
-        r["avg_score"] = round(float(avg["avg"]), 1) if avg and avg["avg"] else 0
+        qc  = query("SELECT COUNT(*) AS cnt FROM question WHERE quiz_id=%s", (r["quiz_id"],), fetchone=True)
+        ac  = query("SELECT COUNT(*) AS cnt FROM quiz_attempt WHERE quiz_id=%s", (r["quiz_id"],), fetchone=True)
+        avg = query("SELECT AVG(score) AS avg FROM quiz_attempt WHERE quiz_id=%s AND status='completed'", (r["quiz_id"],), fetchone=True)
+        r["questions"]  = qc["cnt"] if qc else 0
+        r["attempts"]   = ac["cnt"] if ac else 0
+        r["avg_score"]  = round(float(avg["avg"]), 1) if avg and avg["avg"] else 0
         result.append(r)
     return jsonify(result)
 
@@ -464,7 +427,6 @@ def duplicate_quiz(quiz_id):
          orig["setting_tab_detect"]),
         commit=True
     )
-    # duplicate questions
     questions = query("SELECT * FROM question WHERE quiz_id=%s", (quiz_id,), fetchall=True)
     for q in (questions or []):
         new_q_id = str(uuid.uuid4())
@@ -482,9 +444,7 @@ def duplicate_quiz(quiz_id):
              q["sample_output"], q["starter_code"], q["tags"], q["subtopic"]),
             commit=True
         )
-        # duplicate options
-        options = query("SELECT * FROM option_choice WHERE question_id=%s",
-                        (str(q["question_id"]),), fetchall=True)
+        options = query("SELECT * FROM option_choice WHERE question_id=%s", (str(q["question_id"]),), fetchall=True)
         for opt in (options or []):
             query(
                 "INSERT INTO option_choice (question_id, option_text, is_correct, display_order) VALUES (%s,%s,%s,%s)",
@@ -497,6 +457,7 @@ def duplicate_quiz(quiz_id):
 # ═══════════════════════════════════════════════════════════════════════════════
 # QUESTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
+
 @app.route("/api/quizzes/<quiz_id>/questions", methods=["GET", "POST"])
 @require_auth()
 def questions_handler(quiz_id):
@@ -513,39 +474,24 @@ def questions_handler(quiz_id):
                 q["quiz_id"] = str(q["quiz_id"])
             if q["type"] == "mcq":
                 opts = query(
-                    """SELECT option_id, option_text, is_correct, display_order
-                       FROM option_choice WHERE question_id=%s ORDER BY display_order""",
+                    "SELECT option_id, option_text, is_correct, display_order FROM option_choice WHERE question_id=%s ORDER BY display_order",
                     (q["question_id"],), fetchall=True
                 )
-                q["options"] = [
-                    {
-                        "option_id": str(o["option_id"]),
-                        "option_text": o["option_text"],
-                        "is_correct": o["is_correct"],
-                        "display_order": o["display_order"],
-                    }
-                    for o in (opts or [])
-                ]
+                q["options"] = [{"option_id": str(o["option_id"]), "option_text": o["option_text"],
+                                  "is_correct": o["is_correct"], "display_order": o["display_order"]}
+                                 for o in (opts or [])]
             if q["type"] == "coding":
                 tcs = query(
-                    """SELECT testcase_id, input_data, expected_output, is_hidden, display_order
-                       FROM coding_testcase WHERE question_id=%s ORDER BY display_order""",
+                    "SELECT testcase_id, input_data, expected_output, is_hidden, display_order FROM coding_testcase WHERE question_id=%s ORDER BY display_order",
                     (q["question_id"],), fetchall=True
                 )
-                q["test_cases"] = [
-                    {
-                        "testcase_id": str(t["testcase_id"]),
-                        "input_data": t["input_data"],
-                        "expected_output": t["expected_output"],
-                        "is_hidden": t["is_hidden"],
-                        "display_order": t["display_order"],
-                    }
-                    for t in (tcs or [])
-                ]
+                q["test_cases"] = [{"testcase_id": str(t["testcase_id"]), "input_data": t["input_data"],
+                                     "expected_output": t["expected_output"], "is_hidden": t["is_hidden"],
+                                     "display_order": t["display_order"]}
+                                    for t in (tcs or [])]
             result.append(q)
         return jsonify(result)
 
-    # POST — teacher adds a question
     if request.user_role not in ("TEACHER", "ADMIN"):
         return jsonify({"error": "Forbidden"}), 403
 
@@ -559,61 +505,36 @@ def questions_handler(quiz_id):
              problem_title, problem_description, constraints_text,
              sample_input, sample_output, starter_code, tags, subtopic)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (q_id, quiz_id,
-         d.get("questionText"),
-         d.get("type", "mcq"),
-         d.get("topic"),
-         d.get("marks", 1),
-         d.get("difficulty", "medium"),
-         d.get("imageData"),
-         d.get("expectedAnswer"),
-         d.get("keywords"),
-         d.get("evaluationMode", "manual"),
-         d.get("problemTitle"),
-         d.get("problemDescription"),
-         d.get("constraints"),
-         d.get("sampleInput"),
-         d.get("sampleOutput"),
-         d.get("starterCode"),
-         d.get("tags"),
-         d.get("subtopic")),
+        (q_id, quiz_id, d.get("questionText"), d.get("type", "mcq"), d.get("topic"),
+         d.get("marks", 1), d.get("difficulty", "medium"), d.get("imageData"),
+         d.get("expectedAnswer"), d.get("keywords"), d.get("evaluationMode", "manual"),
+         d.get("problemTitle"), d.get("problemDescription"), d.get("constraints"),
+         d.get("sampleInput"), d.get("sampleOutput"), d.get("starterCode"),
+         d.get("tags"), d.get("subtopic")),
         commit=True
     )
 
     if d.get("type") == "mcq":
         for i, opt in enumerate(d.get("options", [])):
             query(
-                """INSERT INTO option_choice
-                   (question_id, option_text, is_correct, display_order)
-                   VALUES (%s,%s,%s,%s)""",
-                (q_id, opt, i == d.get("correctOption", 0), i),
-                commit=True
+                "INSERT INTO option_choice (question_id, option_text, is_correct, display_order) VALUES (%s,%s,%s,%s)",
+                (q_id, opt, i == d.get("correctOption", 0), i), commit=True
             )
 
     if d.get("type") == "coding":
         for i, tc in enumerate(d.get("testCasesParsed", [])):
             query(
-                """INSERT INTO coding_testcase
-                   (question_id, input_data, expected_output, is_hidden, display_order)
-                   VALUES (%s,%s,%s,%s,%s)""",
-                (q_id,
-                 tc.get("input", ""),
-                 tc.get("expected", ""),
-                 tc.get("hidden", True),
-                 i),
+                "INSERT INTO coding_testcase (question_id, input_data, expected_output, is_hidden, display_order) VALUES (%s,%s,%s,%s,%s)",
+                (q_id, tc.get("input", ""), tc.get("expected", ""), tc.get("hidden", True), i),
                 commit=True
             )
 
     query(
-        """UPDATE quiz
-           SET total_marks = (SELECT COALESCE(SUM(marks),0) FROM question WHERE quiz_id=%s)
+        """UPDATE quiz SET total_marks = (SELECT COALESCE(SUM(marks),0) FROM question WHERE quiz_id=%s)
            WHERE quiz_id=%s""",
         (quiz_id, quiz_id), commit=True
     )
-
     return jsonify({"question_id": q_id}), 201
-
-
 
 
 @app.route("/api/questions/<question_id>", methods=["DELETE"])
@@ -624,50 +545,145 @@ def delete_question(question_id):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# QUIZ ATTEMPTS
+# QUIZ ATTEMPTS  —  with server-side timer
 # ═══════════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/quizzes/<quiz_id>/attempt/start", methods=["POST"])
 @require_auth(roles=["STUDENT"])
 def start_attempt(quiz_id):
-    # check existing
+    """
+    First call: creates the attempt and stamps server_start_time + server_deadline.
+    Subsequent calls (refresh / re-login): returns the EXISTING attempt with remaining seconds.
+    Auto-submits if the deadline has already passed.
+    """
+    now = datetime.now(timezone.utc)
+
     existing = query(
-        "SELECT attempt_id, status FROM quiz_attempt WHERE quiz_id=%s AND student_id=%s",
+        "SELECT * FROM quiz_attempt WHERE quiz_id=%s AND student_id=%s",
         (quiz_id, request.user_id), fetchone=True
     )
-    if existing and existing["status"] == "completed":
-        return jsonify({"error": "Already submitted"}), 409
-    if existing:
-        return jsonify({"attempt_id": str(existing["attempt_id"]), "resumed": True})
 
+    if existing:
+        if existing["status"] == "completed":
+            return jsonify({"error": "Already submitted"}), 409
+
+        # If deadline has passed, auto-submit whatever score exists
+        deadline = existing.get("server_deadline")
+        if deadline and now >= deadline:
+            _auto_submit(str(existing["attempt_id"]))
+            return jsonify({"error": "Time expired — quiz auto-submitted"}), 409
+
+        seconds_left = 0
+        if deadline:
+            seconds_left = max(0, int((deadline - now).total_seconds()))
+
+        return jsonify({
+            "attempt_id":    str(existing["attempt_id"]),
+            "resumed":       True,
+            "seconds_left":  seconds_left,
+            "server_deadline": deadline.isoformat() if deadline else None,
+        })
+
+    # Fetch quiz duration
+    quiz = query("SELECT duration, setting_fullscreen, setting_tab_detect, setting_copy_paste FROM quiz WHERE quiz_id=%s", (quiz_id,), fetchone=True)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+
+    duration_minutes = quiz["duration"] or 30
+    deadline = now + timedelta(minutes=duration_minutes)
     attempt_id = str(uuid.uuid4())
+
     query(
-        "INSERT INTO quiz_attempt (attempt_id, quiz_id, student_id) VALUES (%s,%s,%s)",
-        (attempt_id, quiz_id, request.user_id), commit=True
+        """INSERT INTO quiz_attempt
+            (attempt_id, quiz_id, student_id, server_start_time, server_deadline)
+           VALUES (%s,%s,%s,%s,%s)""",
+        (attempt_id, quiz_id, request.user_id, now, deadline),
+        commit=True
     )
-    return jsonify({"attempt_id": attempt_id, "resumed": False}), 201
+
+    return jsonify({
+        "attempt_id":      attempt_id,
+        "resumed":         False,
+        "seconds_left":    duration_minutes * 60,
+        "server_deadline": deadline.isoformat(),
+        "settings": {
+            "fullscreen":  quiz["setting_fullscreen"],
+            "tabDetect":   quiz["setting_tab_detect"],
+            "copyPaste":   quiz["setting_copy_paste"],
+        }
+    }), 201
+
+
+def _auto_submit(attempt_id: str):
+    """Internal helper — compute score and mark attempt completed."""
+    total = query(
+        "SELECT COALESCE(SUM(marks_awarded),0) AS total FROM attempt_answer WHERE attempt_id=%s",
+        (attempt_id,), fetchone=True
+    )
+    score = float(total["total"]) if total else 0
+    query(
+        """UPDATE quiz_attempt
+           SET status='completed', submit_time=NOW(), score=%s, auto_submitted=TRUE
+           WHERE attempt_id=%s""",
+        (score, attempt_id), commit=True
+    )
+
+
+@app.route("/api/attempts/<attempt_id>/sync-timer", methods=["GET"])
+@require_auth(roles=["STUDENT"])
+def sync_timer(attempt_id):
+    """
+    Lightweight endpoint the frontend polls every ~10 s to get authoritative
+    seconds_left. If expired, triggers auto-submit.
+    """
+    now = datetime.now(timezone.utc)
+    row = query(
+        "SELECT status, server_deadline, auto_submitted FROM quiz_attempt WHERE attempt_id=%s AND student_id=%s",
+        (attempt_id, request.user_id), fetchone=True
+    )
+    if not row:
+        return jsonify({"error": "Not found"}), 404
+
+    if row["status"] == "completed":
+        return jsonify({"status": "completed", "seconds_left": 0})
+
+    deadline = row.get("server_deadline")
+    if deadline and now >= deadline:
+        _auto_submit(attempt_id)
+        return jsonify({"status": "completed", "seconds_left": 0, "auto_submitted": True})
+
+    seconds_left = max(0, int((deadline - now).total_seconds())) if deadline else 0
+    return jsonify({"status": row["status"], "seconds_left": seconds_left})
 
 
 @app.route("/api/attempts/<attempt_id>/answer", methods=["POST"])
 @require_auth(roles=["STUDENT"])
 def save_answer(attempt_id):
-    """Save/update one answer. Body: { question_id, selected_option?, answer_text? }"""
+    """Save/update one answer. Also checks timer server-side."""
+    # Timer guard
+    now = datetime.now(timezone.utc)
+    row = query("SELECT status, server_deadline FROM quiz_attempt WHERE attempt_id=%s", (attempt_id,), fetchone=True)
+    if not row:
+        return jsonify({"error": "Attempt not found"}), 404
+    if row["status"] == "completed":
+        return jsonify({"error": "Already submitted"}), 409
+    if row.get("server_deadline") and now >= row["server_deadline"]:
+        _auto_submit(attempt_id)
+        return jsonify({"error": "Time expired"}), 409
+
     d = request.json or {}
     question_id     = d.get("question_id")
-    selected_option = d.get("selected_option")   # option UUID for MCQ
-    answer_text     = d.get("answer_text")        # text for short/coding
+    selected_option = d.get("selected_option")
+    answer_text     = d.get("answer_text")
 
-    # check correctness for MCQ automatically
     is_correct    = None
     marks_awarded = 0
     if selected_option:
-        opt = query("SELECT is_correct FROM option_choice WHERE option_id=%s",
-                    (selected_option,), fetchone=True)
+        opt = query("SELECT is_correct FROM option_choice WHERE option_id=%s", (selected_option,), fetchone=True)
         if opt:
             is_correct = opt["is_correct"]
             if is_correct:
-                q = query("SELECT marks FROM question WHERE question_id=%s",
-                          (question_id,), fetchone=True)
+                q = query("SELECT marks FROM question WHERE question_id=%s", (question_id,), fetchone=True)
                 marks_awarded = q["marks"] if q else 0
 
     query(
@@ -686,13 +702,12 @@ def save_answer(attempt_id):
 @app.route("/api/attempts/<attempt_id>/submit", methods=["POST"])
 @require_auth(roles=["STUDENT"])
 def submit_attempt(attempt_id):
-    """Auto-calculate score and mark as completed."""
+    """Manual submission by student."""
     total = query(
         "SELECT COALESCE(SUM(marks_awarded),0) AS total FROM attempt_answer WHERE attempt_id=%s",
         (attempt_id,), fetchone=True
     )
     score = float(total["total"]) if total else 0
-
     query(
         "UPDATE quiz_attempt SET status='completed', submit_time=NOW(), score=%s WHERE attempt_id=%s",
         (score, attempt_id), commit=True
@@ -700,25 +715,191 @@ def submit_attempt(attempt_id):
     return jsonify({"ok": True, "score": score})
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# VIOLATION LOGGING  (replaces the old single-counter endpoint)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+VIOLATION_LIMITS = {
+    "tab_switch":       1,
+    "window_blur":      1,
+    "fullscreen_exit":  1,
+    "copy_paste":       1,
+    "right_click":      1,
+    "keyboard_shortcut":1,
+    "idle_timeout":     1,
+}
+
 @app.route("/api/attempts/<attempt_id>/violation", methods=["POST"])
 @require_auth(roles=["STUDENT"])
 def record_violation(attempt_id):
-    """Increment tab-switch count."""
-    row = query(
-        "UPDATE quiz_attempt SET violations = violations+1 WHERE attempt_id=%s RETURNING violations",
+    d      = request.json or {}
+    v_type = d.get("violation_type", "tab_switch")
+    detail = d.get("detail", "")
+
+    allowed_types = [
+        "tab_switch", "window_blur", "fullscreen_exit", "copy_paste",
+        "right_click", "keyboard_shortcut", "idle_timeout",
+        "code_run", "code_submit", "question_time"
+    ]
+    if v_type not in allowed_types:
+        return jsonify({"error": "Invalid violation_type"}), 400
+
+    attempt = query(
+        "SELECT attempt_id, quiz_id, student_id, status, violations FROM quiz_attempt WHERE attempt_id=%s AND student_id=%s",
+        (attempt_id, request.user_id), fetchone=True
+    )
+    if not attempt:
+        return jsonify({"error": "Attempt not found"}), 404
+
+    # Always insert the log row even if already completed,
+    # so the teacher can see what happened
+    query(
+        """INSERT INTO violation_log (attempt_id, student_id, quiz_id, violation_type, detail)
+           VALUES (%s,%s,%s,%s,%s)""",
+        (attempt_id, str(attempt["student_id"]), str(attempt["quiz_id"]), v_type, detail),
+        commit=True
+    )
+
+    if attempt["status"] == "completed":
+        return jsonify({
+            "violations":     attempt["violations"],
+            "type_count":     1,
+            "type_limit":     999,
+            "auto_submitted": False,
+            "flagged":        attempt["violations"] >= 3,
+        })
+
+    # Increment total counter
+    query(
+        "UPDATE quiz_attempt SET violations = violations + 1 WHERE attempt_id=%s",
+        (attempt_id,), commit=True
+    )
+
+    updated = query(
+        "SELECT violations FROM quiz_attempt WHERE attempt_id=%s",
         (attempt_id,), fetchone=True
     )
-    if row:
-        # auto-flag if > 3
-        violations = row["violations"]
-        if violations >= 3:
-            query("UPDATE quiz_attempt SET status='flagged' WHERE attempt_id=%s",
-                  (attempt_id,), commit=True)
-        else:
-            query("UPDATE quiz_attempt SET violations=%s WHERE attempt_id=%s",
-                  (violations, attempt_id), commit=True)
-        return jsonify({"violations": violations, "flagged": violations >= 3})
-    return jsonify({"error": "Attempt not found"}), 404
+    total_violations = updated["violations"] if updated else 0
+
+    type_count_row = query(
+        "SELECT COUNT(*) AS cnt FROM violation_log WHERE attempt_id=%s AND violation_type=%s",
+        (attempt_id, v_type), fetchone=True
+    )
+    type_count = type_count_row["cnt"] if type_count_row else 0
+
+    return jsonify({
+        "violations":     total_violations,
+        "type_count":     type_count,
+        "type_limit":     999,
+        "auto_submitted": False,
+        "flagged":        total_violations >= 3,
+    })
+@app.route("/api/quizzes/<quiz_id>/attempts", methods=["GET"])
+@require_auth(roles=["TEACHER", "ADMIN"])
+def list_quiz_attempts(quiz_id):
+    rows = query(
+        """SELECT qa.attempt_id, qa.student_id, u.name AS student_name,
+                  u.email AS student_email, qa.score, qa.status,
+                  qa.violations, qa.submit_time, qa.auto_submitted,
+                  (SELECT COUNT(*) FROM attempt_answer aa WHERE aa.attempt_id = qa.attempt_id) AS answered_count,
+                  (SELECT COUNT(*) FROM question q WHERE q.quiz_id = qa.quiz_id) AS total_questions
+           FROM quiz_attempt qa
+           JOIN users u ON u.user_id = qa.student_id
+           WHERE qa.quiz_id = %s
+           ORDER BY qa.start_time DESC""",
+        (quiz_id,), fetchall=True
+    )
+    result = []
+    for r in (rows or []):
+        r = dict(r)
+        r["attempt_id"] = str(r["attempt_id"])
+        r["student_id"] = str(r["student_id"])
+        r["score"] = float(r["score"]) if r["score"] is not None else 0
+        r["submitted_at"] = r["submit_time"].isoformat() if r["submit_time"] else None
+        r["auto_submitted"] = r.get("auto_submitted", False)
+        result.append(r)
+    return jsonify(result)
+
+@app.route("/api/attempts/<attempt_id>/question-time", methods=["POST"])
+@require_auth(roles=["STUDENT"])
+def log_question_time(attempt_id):
+    """
+    Body: { question_id, time_spent_ms }
+    Upserts time spent on a question.
+    """
+    d = request.json or {}
+    question_id   = d.get("question_id")
+    time_spent_ms = int(d.get("time_spent_ms", 0))
+
+    if not question_id:
+        return jsonify({"error": "question_id required"}), 400
+
+    query(
+        """INSERT INTO question_time_log (attempt_id, question_id, time_spent_ms)
+           VALUES (%s,%s,%s)
+           ON CONFLICT (attempt_id, question_id)
+           DO UPDATE SET time_spent_ms = question_time_log.time_spent_ms + EXCLUDED.time_spent_ms,
+                         recorded_at = NOW()""",
+        (attempt_id, question_id, time_spent_ms),
+        commit=True
+    )
+    return jsonify({"ok": True})
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TEACHER — VIOLATION REVIEW
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@app.route("/api/quizzes/<quiz_id>/violations", methods=["GET"])
+@require_auth(roles=["TEACHER", "ADMIN"])
+def get_quiz_violations(quiz_id):
+    """Returns all violation events for a quiz, grouped by student."""
+    rows = query(
+        """SELECT
+               vl.log_id, vl.attempt_id, vl.student_id,
+               u.name AS student_name, u.email AS student_email,
+               vl.violation_type, vl.detail, vl.occurred_at,
+               qa.violations AS total_violations, qa.status AS attempt_status,
+               qa.score, qa.auto_submitted
+           FROM violation_log vl
+           JOIN users u ON u.user_id = vl.student_id
+           JOIN quiz_attempt qa ON qa.attempt_id = vl.attempt_id
+           WHERE vl.quiz_id = %s
+           ORDER BY vl.occurred_at DESC""",
+        (quiz_id,), fetchall=True
+    )
+    result = []
+    for r in (rows or []):
+        r = dict(r)
+        r["log_id"]     = str(r["log_id"])
+        r["attempt_id"] = str(r["attempt_id"])
+        r["student_id"] = str(r["student_id"])
+        result.append(r)
+    return jsonify(result)
+
+
+@app.route("/api/attempts/<attempt_id>/violations", methods=["GET"])
+@require_auth(roles=["TEACHER", "ADMIN"])
+def get_attempt_violations(attempt_id):
+    """Returns detailed violation log + question time for a single attempt."""
+    violations = query(
+        """SELECT vl.*, u.name AS student_name
+           FROM violation_log vl
+           JOIN users u ON u.user_id = vl.student_id
+           WHERE vl.attempt_id=%s ORDER BY vl.occurred_at""",
+        (attempt_id,), fetchall=True
+    )
+    qtimes = query(
+        """SELECT qtl.question_id, q.question_text, qtl.time_spent_ms
+           FROM question_time_log qtl
+           JOIN question q ON q.question_id = qtl.question_id
+           WHERE qtl.attempt_id=%s ORDER BY qtl.time_spent_ms DESC""",
+        (attempt_id,), fetchall=True
+    )
+    return jsonify({
+        "violations":    [dict(v) for v in (violations or [])],
+        "question_times": [dict(t) for t in (qtimes or [])],
+    })
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -738,21 +919,21 @@ def run_code():
         return response, 204
     try:
         d = request.json or {}
-        code = d.get("code", "") or ""
+        code    = d.get("code", "") or ""
         lang_id = int(d.get("language_id", 71))
-        stdin = d.get("stdin") or ""
+        stdin   = d.get("stdin") or ""
         resp = requests.post(
             "https://ce.judge0.com/submissions?base64_encoded=false&wait=true",
             json={"source_code": code, "language_id": lang_id, "stdin": stdin or None},
             headers={"Content-Type": "application/json"},
             timeout=30
         )
-        result = resp.json()
-        stdout = result.get("stdout") or ""
-        stderr = result.get("stderr") or ""
+        result      = resp.json()
+        stdout      = result.get("stdout") or ""
+        stderr      = result.get("stderr") or ""
         compile_out = result.get("compile_output") or ""
-        status = result.get("status", {}).get("description", "")
-        output = stdout or stderr or compile_out or ""
+        status      = result.get("status", {}).get("description", "")
+        output      = stdout or stderr or compile_out or ""
         response = jsonify({"output": output.strip(), "verdict": status, "stdout": stdout.strip()})
         response.headers.add("Access-Control-Allow-Origin", "*")
         return response
@@ -767,36 +948,36 @@ def submit_code():
     if request.method == "OPTIONS":
         return "", 204
     d = request.json or {}
-    code      = d.get("code", "")
-    lang_id   = d.get("language_id", 71)
-    test_cases = d.get("test_cases", [])
-    attempt_id = d.get("attempt_id")
+    code        = d.get("code", "")
+    lang_id     = d.get("language_id", 71)
+    test_cases  = d.get("test_cases", [])
+    attempt_id  = d.get("attempt_id")
     question_id = d.get("question_id")
 
-    results = []
+    results  = []
     all_pass = True
 
     for tc in test_cases:
         try:
             resp = requests.post(
-             f"{JUDGE0_URL}/submissions?base64_encoded=false&wait=true",
-            json={"source_code": code, "language_id": lang_id, "stdin": tc.get("input", "")},
-            headers={"Content-Type": "application/json"},
-            timeout=15
+                f"{JUDGE0_URL}/submissions?base64_encoded=false&wait=true",
+                json={"source_code": code, "language_id": lang_id, "stdin": tc.get("input", "")},
+                headers={"Content-Type": "application/json"},
+                timeout=15
             )
-            result = resp.json()
-            stdout = (result.get("stdout") or "").strip()
+            result   = resp.json()
+            stdout   = (result.get("stdout") or "").strip()
             expected = (tc.get("expected") or "").strip()
-            passed = stdout == expected
+            passed   = stdout == expected
             if not passed:
                 all_pass = False
             results.append({
-                "id": tc.get("id", 1),
-                "pass": passed,
-                "got": stdout,
+                "id":       tc.get("id", 1),
+                "pass":     passed,
+                "got":      stdout,
                 "expected": expected,
-                "time": result.get("time"),
-                "error": result.get("stderr") or result.get("compile_output") or None,
+                "time":     result.get("time"),
+                "error":    result.get("stderr") or result.get("compile_output") or None,
             })
         except Exception as e:
             all_pass = False
@@ -804,7 +985,6 @@ def submit_code():
 
     verdict = "Accepted" if all_pass else "Wrong Answer"
 
-    # log submission to DB if we have attempt context
     if attempt_id and question_id:
         lang_name = {v: k for k, v in LANG_MAP.items()}.get(lang_id, "unknown")
         try:
@@ -817,7 +997,7 @@ def submit_code():
                 commit=True
             )
         except Exception:
-            pass  # don't fail submission if logging fails
+            pass
 
     return jsonify({"verdict": verdict, "test_results": results})
 
@@ -829,7 +1009,6 @@ def submit_code():
 @app.route("/api/analytics/teacher", methods=["GET"])
 @require_auth(roles=["TEACHER", "ADMIN"])
 def teacher_analytics():
-    # avg score across all quizzes by this teacher
     avg = query(
         """SELECT AVG(qa.score) AS avg_score, COUNT(qa.attempt_id) AS total_attempts
            FROM quiz_attempt qa
@@ -837,7 +1016,6 @@ def teacher_analytics():
            WHERE q.created_by=%s AND qa.status='completed'""",
         (request.user_id,), fetchone=True
     )
-    # cheating flags
     flags = query(
         """SELECT COUNT(*) AS cnt FROM quiz_attempt qa
            JOIN quiz q ON q.quiz_id = qa.quiz_id
@@ -855,8 +1033,7 @@ def teacher_analytics():
 @require_auth(roles=["STUDENT"])
 def student_analytics():
     stats = query(
-        """SELECT COUNT(*) AS total, AVG(score) AS avg_score
-           FROM quiz_attempt WHERE student_id=%s AND status='completed'""",
+        "SELECT COUNT(*) AS total, AVG(score) AS avg_score FROM quiz_attempt WHERE student_id=%s AND status='completed'",
         (request.user_id,), fetchone=True
     )
     recent = query(
@@ -886,6 +1063,5 @@ def health():
         return jsonify({"status": "error", "db": str(e)}), 500
 
 
-# ─── Run ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     app.run(debug=True, port=8000)

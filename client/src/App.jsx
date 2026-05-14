@@ -8,13 +8,17 @@ import {
   SAMPLE_QUESTIONS,
   CODE_TEMPLATE,
 } from "./data/sampleData";
+import { useQuizSecurity } from "./hooks/useQuizSecurity";
+
 import {
   authAPI,
   quizzesAPI,
   questionsAPI,
   batchesAPI,
   usersAPI,
-  setToken
+  setToken,
+  violationsAPI,
+   attemptsAPI
 } from "./api";
 import Editor from "@monaco-editor/react";
 
@@ -455,7 +459,7 @@ const parseTestCasesFromText = (raw = "") => {
   });
 };
 function QuizManager({quizzes, setQuizzes, batches, attempts, setAttempts, refreshQuizzes}) {
-
+const [violationsQuiz, setViolationsQuiz] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
   const [editingQuizId, setEditingQuizId] = useState(null);
   const [resultsQuiz, setResultsQuiz] = useState(null);
@@ -494,6 +498,32 @@ const [newQuiz, setNewQuiz] = useState({
   availableUntil: "",
   instructions: "",
 });
+const [dbAttempts, setDbAttempts] = useState([]);
+
+useEffect(() => {
+  if (!resultsQuiz) return;
+  fetch(`http://localhost:8000/api/quizzes/${resultsQuiz.id}/attempts`, {
+    headers: { Authorization: `Bearer ${localStorage.getItem("examify_token")}` }
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (!Array.isArray(data)) return;
+      // Normalize DB fields to match local attempt shape
+      setDbAttempts(data.map(a => ({
+        ...a,
+        id:             a.attempt_id,
+        studentName:    a.student_name,
+        studentEmail:   a.student_email,
+        answeredCount:  a.answered_count,
+        totalQuestions: a.total_questions,
+        maxScore:       null,
+        submittedAt:    a.submitted_at,
+        violations:     a.violations ?? 0,
+        auto_submitted: a.auto_submitted ?? false,
+      })));
+    })
+    .catch(() => {});
+}, [resultsQuiz]);
 const handleQuizInputChange = (field, value) => {
   setNewQuiz((prev) => ({
     ...prev,
@@ -987,13 +1017,14 @@ if (selectedAttempt && resultsQuiz) {
   );
 }
 
-
+if (violationsQuiz) {
+  return <ViolationReview quiz={violationsQuiz} onBack={() => setViolationsQuiz(null)} />;
+}
 
 if (resultsQuiz) {
-  const quizAttempts = attempts.filter(
+  const quizAttempts = dbAttempts.length > 0 ? dbAttempts : attempts.filter(
     (attempt) => attempt.quizId === resultsQuiz.id
   );
-
   return (
     <div className="fade-in">
       <div className="flex items-center justify-between mb-4">
@@ -1046,13 +1077,14 @@ if (resultsQuiz) {
                   </div>
                 </div>
 
-                <div className="flex gap-2 items-center">
+                <div className="flex gap-2 items-center flex-wrap">
   <span className="badge badge-blue">
-    {attempt.answeredCount}/{attempt.totalQuestions} answered
+    {attempt.answeredCount ?? attempt.answered_count ?? 0}/
+    {attempt.totalQuestions ?? attempt.total_questions ?? 0} answered
   </span>
 
   <span className="badge badge-green">
-    Score: {attempt.score ?? 0}/{attempt.maxScore ?? 0}
+    Score: {attempt.score ?? 0}
   </span>
 
   {attempt.evaluated && (
@@ -1061,18 +1093,24 @@ if (resultsQuiz) {
     </span>
   )}
 
-                  {attempt.violations > 0 && (
-                    <span className="badge badge-amber">
-                      {attempt.violations} violation(s)
-                    </span>
-                  )}
-                  <button
+  {(attempt.violations > 0 || attempt.auto_submitted) && (
+    <span className="badge badge-red">
+      ⚠ {attempt.violations ?? 0} violation(s)
+      {attempt.auto_submitted ? " · Auto-submitted" : ""}
+    </span>
+  )}
+
+  {attempt.auto_submitted && (
+    <span className="badge badge-red">🚨 Cheating Detected</span>
+  )}
+
+  <button
     className="btn btn-primary btn-sm"
     onClick={() => setSelectedAttempt(attempt)}
   >
     Review
   </button>
-                </div>
+</div>
               </div>
             </div>
           ))}
@@ -1081,6 +1119,8 @@ if (resultsQuiz) {
     </div>
   );
 }
+
+  
 
   return (
     <div className="fade-in">
@@ -1655,32 +1695,23 @@ Output: 1 2`}
               </div>
 
               
-              <div className="flex gap-2 mt-3">
-                <button
-                  className="btn btn-ghost btn-sm flex-1"
-                  onClick={() => handleEditQuiz(q)}
-                >
-                  <Icon name="edit" size={12} /> Edit
-                </button>
-                <button
-  className="btn btn-ghost btn-sm flex-1"
-  onClick={() => setResultsQuiz(q)}
->
-  <Icon name="chart" size={12} /> Results
-</button>
-                <button
-                className="btn btn-ghost btn-sm btn-icon"
-                onClick={() => handleDuplicateQuiz(q)}
-              >
-                <Icon name="copy" size={12} />
-              </button>
-                <button
-                  className="btn btn-danger btn-sm btn-icon"
-                  onClick={() => handleDeleteQuiz(q.id)}
-                >
-                  <Icon name="trash" size={12} />
-                </button>
-              </div>
+      <div className="flex gap-2 mt-3">
+  <button className="btn btn-ghost btn-sm flex-1" onClick={() => handleEditQuiz(q)}>
+    <Icon name="edit" size={12} /> Edit
+  </button>
+  <button className="btn btn-ghost btn-sm flex-1" onClick={() => setResultsQuiz(q)}>
+    <Icon name="chart" size={12} /> Results
+  </button>
+  <button className="btn btn-ghost btn-sm flex-1" onClick={() => setViolationsQuiz(q)}>
+    <Icon name="flag" size={12} /> Violations
+  </button>
+  <button className="btn btn-ghost btn-sm btn-icon" onClick={() => handleDuplicateQuiz(q)}>
+    <Icon name="copy" size={12} />
+  </button>
+  <button className="btn btn-danger btn-sm btn-icon" onClick={() => handleDeleteQuiz(q.id)}>
+    <Icon name="trash" size={12} />
+  </button>
+</div>
             </div>
           </div>
         ))}
@@ -2742,375 +2773,411 @@ const [customExpected, setCustomExpected] = useState("");
     </div>
   );
 }
-function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [flagged, setFlagged] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(45 * 60);
-  const [showCheat, setShowCheat] = useState(false);
-  const [violations, setViolations] = useState(0);
-  const [submitted, setSubmitted] = useState(false);
+// ─────────────────────────────────────────────────────────────────────────────
+// REPLACEMENT for the QuizAttempt function in app.jsx
+//
+// HOW TO USE:
+//   1. Copy useQuizSecurity.js to client/src/hooks/useQuizSecurity.js
+//   2. At the top of app.jsx add:
+//        import { useQuizSecurity } from "./hooks/useQuizSecurity";
+//   3. Replace the entire QuizAttempt function (and its inner state) with
+//      the component below.
+// ─────────────────────────────────────────────────────────────────────────────
 
- const questions = (quiz?.questionList || []).map((question, index) => ({
-  id: question.id || index,
-  text: question.questionText || question.text || "Untitled question",
-  type: question.type || "mcq",
-  opts: question.options || question.opts || [],
-  correct: question.correctOption ?? question.correct,
-  marks: Number(question.marks) || 1,
-  topic: question.topic || "",
-  expectedAnswer: question.expectedAnswer || "",
-  keywords: question.keywords || "",
-  image:
-    question.image ||
-    question.imageData ||
-    question.imageUrl ||
-    question.imagePreview ||
-    question.questionImage ||
-    question.uploadedImage ||
-    null,
-  // coding fields
-  problemTitle: question.problemTitle || "",
-  problemDescription: question.problemDescription || "",
-  constraints: question.constraints || "",
-  sampleInput: question.sampleInput || "",
-  sampleOutput: question.sampleOutput || "",
-  starterCode: question.starterCode || "",
-  difficulty: question.difficulty || "medium",
-  test_cases: question.test_cases || [],
-}));
-if (!quiz) {
-  return (
-    <div className="fade-in">
-      <div className="card">
-        <div className="section-title mb-2">No quiz selected</div>
-        <div className="text-sm text-faint mb-4">
-          Please go back to My Quizzes and start a quiz.
-        </div>
-        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
-          Back to My Quizzes
-        </button>
-      </div>
-    </div>
-  );
-}
+function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
+  // ── Core quiz state ────────────────────────────────────────────────────────
+  const [current, setCurrent]       = useState(0);
+  const [answers, setAnswers]       = useState({});
+  const [flagged, setFlagged]       = useState([]);
+  const [submitted, setSubmitted]   = useState(false);
 
-if (questions.length === 0) {
-  return (
-    <div className="fade-in">
-      <div className="card">
-        <div className="section-title mb-2">{quiz.title}</div>
-        <div className="text-sm text-faint mb-4">
-          This quiz does not have any questions yet.
-        </div>
-        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
-          Back to My Quizzes
-        </button>
-      </div>
-    </div>
-  );
-}
+  // ── Server-side attempt state ──────────────────────────────────────────────
+  const [attemptId, setAttemptId]         = useState(null);
+  const [secondsLeft, setSecondsLeft]     = useState(0);
+  const [attemptSettings, setSettings]    = useState({
+    fullscreen: true, tabDetect: true, copyPaste: true,
+  });
+  const [startError, setStartError]       = useState(null);
+  const [startLoading, setStartLoading]   = useState(true);
 
+  // ── Violation overlay state ────────────────────────────────────────────────
+  const [cheatOverlay, setCheatOverlay]   = useState(null); // { message }
+  const [warningToast, setWarningToast]   = useState(null); // { message }
+
+  const toastTimerRef = useRef(null);
+
+  // ── Build normalised question list ────────────────────────────────────────
+  const questions = useMemo(() => (quiz?.questionList || []).map((q, i) => ({
+    id:                 q.id || String(i),
+    text:               q.questionText || q.text || "Untitled question",
+    type:               q.type || "mcq",
+    opts:               (q.type === "mcq" ? q.options : []) || [],
+    correct:            q.correctOption ?? q.correct,
+    marks:              Number(q.marks) || 1,
+    topic:              q.topic || "",
+    expectedAnswer:     q.expectedAnswer || "",
+    keywords:           q.keywords || "",
+    image:              q.imageData || q.image || null,
+    problemTitle:       q.problemTitle || "",
+    problemDescription: q.problemDescription || "",
+    constraints:        q.constraints || "",
+    sampleInput:        q.sampleInput || "",
+    sampleOutput:       q.sampleOutput || "",
+    starterCode:        q.starterCode || "",
+    difficulty:         q.difficulty || "medium",
+    test_cases:         q.test_cases || [],
+  })), [quiz]);
+
+  // ── 1. START / RESUME attempt on mount ───────────────────────────────────
   useEffect(() => {
-    const timer = setInterval(() => setTimeLeft(t => t > 0 ? t - 1 : 0), 1000);
-    return () => clearInterval(timer);
+    if (!quiz) return;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await attemptsAPI.start(quiz.id);
+        if (cancelled) return;
+        setAttemptId(res.attempt_id);
+        setSecondsLeft(res.seconds_left || 0);
+        if (res.settings) setSettings(res.settings);
+      } catch (err) {
+        if (cancelled) return;
+        setStartError(err.message);
+      } finally {
+        if (!cancelled) setStartLoading(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [quiz]);
+
+  // ── 2. Violation callbacks ────────────────────────────────────────────────
+  const handleAutoSubmit = useCallback((reason) => {
+    if (submitted) return;
+    setCheatOverlay({ message: reason === "time_expired" || reason === "server_confirmed_expired"
+      ? "⏱ Time's Up! Your quiz has been auto-submitted."
+      : `🚨 Quiz auto-submitted: ${reason.replace(/_/g, " ")}.` });
+    doSubmit(true);
+  }, [submitted]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleViolationWarning = useCallback((type, count, limit) => {
+    const messages = {
+      tab_switch:        `⚠ Tab switch detected (${count}/${limit}). Quiz auto-submits at ${limit}.`,
+      window_blur:       `⚠ Window focus lost (${count}/${limit}).`,
+      fullscreen_exit:   `⚠ Fullscreen exited (${count}/${limit}). Please return to fullscreen.`,
+      copy_paste:        `⚠ Copy/paste blocked (${count}/${limit}).`,
+      keyboard_shortcut: `⚠ Blocked shortcut (${count}/${limit}).`,
+      idle_timeout:      `⚠ Idle detected. Move or type to continue (${count}s).`,
+    };
+    const msg = messages[type] || `⚠ Violation: ${type} (${count}/${limit})`;
+
+    setWarningToast({ message: msg });
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setWarningToast(null), 4000);
   }, []);
 
-  const mins = String(Math.floor(timeLeft / 60)).padStart(2, "0");
-  const secs = String(timeLeft % 60).padStart(2, "0");
+  // ── 3. Security hook ──────────────────────────────────────────────────────
+  const security = useQuizSecurity({
+    attemptId,
+    initialSecondsLeft: secondsLeft,
+    settings: attemptSettings,
+    onAutoSubmit:       handleAutoSubmit,
+    onViolationWarning: handleViolationWarning,
+  });
 
+  // Sync local secondsLeft into security hook when attempt loads
+  useEffect(() => {
+    if (secondsLeft > 0) security.timeLeft; // hook owns timeLeft after mount
+  }, [secondsLeft]);
+
+  // ── 4. Question navigation with time tracking ─────────────────────────────
+  const navigateTo = useCallback(async (nextIndex) => {
+    // Log time on current question
+    await security.logQuestionExit(questions[current]?.id);
+    setCurrent(nextIndex);
+    security.markQuestionEntered();
+  }, [current, questions, security]);
+
+  // ── 5. Submission ─────────────────────────────────────────────────────────
+  const doSubmit = useCallback(async (auto = false) => {
+    if (submitted) return;
+  if (!auto) security.markSubmitting();  // NEW: mark as voluntary before anything
+  setSubmitted(true);
+
+    // Log time on current question
+    await security.logQuestionExit(questions[current]?.id).catch(() => {});
+
+    // Calculate local score for immediate display
+    let score = 0, maxScore = 0;
+    questions.forEach((q, i) => {
+      const marks = Number(q.marks) || 1;
+      maxScore += marks;
+      if (q.type === "mcq" && answers[i] === q.correct) score += marks;
+    });
+
+    const attemptRecord = {
+      id:             Date.now(),
+      quizId:         quiz.id,
+      quizTitle:      quiz.title,
+      studentId:      currentUser?.id,
+      studentName:    currentUser?.name || "Unknown Student",
+      studentEmail:   currentUser?.email || "",
+      answers,
+      answeredCount:  Object.keys(answers).length,
+      totalQuestions: questions.length,
+      score,
+      maxScore,
+      violations:     security.violations,
+      submittedAt:    new Date().toLocaleString(),
+      autoSubmitted:  auto,
+    };
+
+    setAttempts((prev) => {
+      if (prev.some((a) => a.quizId === quiz.id && a.studentId === currentUser?.id)) return prev;
+      return [attemptRecord, ...prev];
+    });
+
+    // Tell server
+    if (attemptId) {
+      attemptsAPI.submit(attemptId).catch(() => {});
+    }
+  }, [submitted, answers, questions, quiz, currentUser, attemptId, security, setAttempts, current]);
+
+  const handleManualSubmit = async () => {
+  if (!confirm("Submit quiz? You cannot change answers after submitting.")) return;
+  security.markSubmitting();  // tell security hook this is voluntary
+  await doSubmit(false);
+};
+
+  // ── Timer formatting ──────────────────────────────────────────────────────
+  const t = security.timeLeft;
+  const mins = String(Math.floor(t / 60)).padStart(2, "0");
+  const secs = String(t % 60).padStart(2, "0");
+
+  // ── Navigator bubble status ───────────────────────────────────────────────
   const getStatus = (i) => {
-    if (i === current) return "q-current";
-    if (flagged.includes(i)) return "q-flagged";
+    if (i === current)        return "q-current";
+    if (flagged.includes(i))  return "q-flagged";
     if (answers[i] !== undefined) return "q-attempted";
     return "q-unattempted";
   };
 
-  const q = questions[current];
-
-
-  const calculateScore = () => {
-  let score = 0;
-  let maxScore = 0;
-
-  questions.forEach((question, index) => {
-    const marks = Number(question.marks) || 1;
-    maxScore += marks;
-
-    if (question.type === "mcq") {
-      const studentAnswer = answers[index];
-
-      if (studentAnswer === question.correct) {
-        score += marks;
-      }
-    }
-  });
-
-  return { score, maxScore };
-};
-
-  const handleSubmitQuiz = () => {
-  const confirmSubmit = confirm(
-    "Submit quiz? You cannot change answers after submitting."
+  // ── Guard: quiz not loaded ────────────────────────────────────────────────
+  if (!quiz) return (
+    <div className="fade-in"><div className="card">
+      <div className="section-title mb-2">No quiz selected</div>
+      <button className="btn btn-primary" onClick={() => setPage("quizzes")}>Back to My Quizzes</button>
+    </div></div>
   );
 
-  if (!confirmSubmit) return;
-
-   const answeredCount = Object.keys(answers).length;
-   const { score, maxScore } = calculateScore();
-
-  const attemptToSave = {
-    id: Date.now(),
-    quizId: quiz.id,
-    quizTitle: quiz.title,
-    studentId: currentUser?.id,
-    studentName: currentUser?.name || "Unknown Student",
-    studentEmail: currentUser?.email || "",
-    batchId: currentUser?.batchId || "",
-    answers,
-    answeredCount,
-    totalQuestions: questions.length,
-    score,
-  maxScore,
-    violations,
-    submittedAt: new Date().toLocaleString(),
-  };
-
-  setAttempts((prev) => {
-  const alreadyAttempted = prev.some(
-    (attempt) =>
-      attempt.quizId === quiz?.id && attempt.studentId === currentUser?.id
-  );
-
-  if (alreadyAttempted) {
-    alert("You have already submitted this quiz.");
-    return prev;
-  }
-
-  return [attemptToSave, ...prev];
-});
-
-  setSubmitted(true);
-};
-
-  const triggerCheatWarning = () => {
-    const newV = violations + 1;
-    setViolations(newV);
-    if (newV >= 3) { setShowCheat(true); setSubmitted(true); return; }
-    alert(`⚠ Warning ${newV}/3: Tab switching detected. Quiz will auto-submit after 3 violations.`);
-  };
-  if (submitted) {
-  const answeredCount = Object.keys(answers).length;
-  const { score, maxScore } = calculateScore();
-
-  return (
-    <div className="fade-in">
-      <div className="card" style={{ maxWidth: 680, margin: "0 auto" }}>
-        <div className="section-title mb-2">Quiz Submitted</div>
-
-        <div className="text-sm text-faint mb-4">
-          Your responses have been recorded for this attempt.
-        </div>
-
-        <div className="grid-4 mb-4">
-          <div className="quiz-stat">
-            <div className="quiz-stat-value">{quiz.title}</div>
-            <div className="quiz-stat-label">Quiz</div>
-          </div>
-
-          <div className="quiz-stat">
-            <div className="quiz-stat-value">
-              {answeredCount}/{questions.length}
-            </div>
-            <div className="quiz-stat-label">Answered</div>
-          </div>
-
-          <div className="quiz-stat">
-  <div className="quiz-stat-value">
-    {score}/{maxScore}
-  </div>
-  <div className="quiz-stat-label">Auto Score</div>
-</div>
-
-          <div className="quiz-stat">
-            <div className="quiz-stat-value">{violations}</div>
-            <div className="quiz-stat-label">Violations</div>
-          </div>
-        </div>
-
-        <button className="btn btn-primary" onClick={() => setPage("quizzes")}>
-          Back to My Quizzes
-        </button>
-      </div>
+  if (startLoading) return (
+    <div className="fade-in" style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}>
+      <div className="ai-loading"><span className="ai-dot"/><span className="ai-dot"/><span className="ai-dot"/></div>
     </div>
   );
-}
 
+  if (startError) return (
+    <div className="fade-in"><div className="card">
+      <div className="section-title mb-2" style={{ color: "var(--red)" }}>Cannot start quiz</div>
+      <div className="text-sm text-faint mb-4">{startError}</div>
+      <button className="btn btn-primary" onClick={() => setPage("quizzes")}>Back</button>
+    </div></div>
+  );
+
+  if (questions.length === 0) return (
+    <div className="fade-in"><div className="card">
+      <div className="section-title mb-2">{quiz.title}</div>
+      <div className="text-sm text-faint mb-4">This quiz has no questions yet.</div>
+      <button className="btn btn-primary" onClick={() => setPage("quizzes")}>Back to My Quizzes</button>
+    </div></div>
+  );
+
+  // ── Submitted screen ──────────────────────────────────────────────────────
+  if (submitted && !cheatOverlay) {
+    let score = 0, maxScore = 0;
+    questions.forEach((q, i) => {
+      maxScore += Number(q.marks) || 1;
+      if (q.type === "mcq" && answers[i] === q.correct) score += Number(q.marks) || 1;
+    });
+    return (
+      <div className="fade-in">
+        <div className="card" style={{ maxWidth: 680, margin: "0 auto" }}>
+          <div className="section-title mb-2">Quiz Submitted ✓</div>
+          <div className="text-sm text-faint mb-4">Your responses have been recorded.</div>
+          <div className="grid-4 mb-4">
+            <div className="quiz-stat"><div className="quiz-stat-value">{Object.keys(answers).length}/{questions.length}</div><div className="quiz-stat-label">Answered</div></div>
+            <div className="quiz-stat"><div className="quiz-stat-value">{score}/{maxScore}</div><div className="quiz-stat-label">Auto Score</div></div>
+            <div className="quiz-stat"><div className="quiz-stat-value">{security.violations}</div><div className="quiz-stat-label">Violations</div></div>
+            <div className="quiz-stat"><div className="quiz-stat-value">{mins}:{secs}</div><div className="quiz-stat-label">Time Left</div></div>
+          </div>
+          <button className="btn btn-primary" onClick={() => setPage("quizzes")}>Back to My Quizzes</button>
+        </div>
+      </div>
+    );
+  }
+
+  const q = questions[current];
+
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
-    <div className="fade-in">
-      {showCheat && (
+    <div className="fade-in" {...security.containerProps}>
+
+      {/* ── Auto-submit / cheat overlay ── */}
+      {cheatOverlay && (
         <div className="cheat-overlay">
           <div className="cheat-box">
             <div style={{ fontSize: 48, marginBottom: 16 }}>🚨</div>
-            <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 600, color: "var(--red)", marginBottom: 8 }}>Quiz Auto-Submitted</div>
-            <p style={{ color: "var(--text2)", fontSize: 14, marginBottom: 24 }}>Multiple violations detected (tab switching). Your quiz has been automatically submitted and flagged for review.</p>
-            <button className="btn btn-danger" onClick={() => setShowCheat(false)}>View Results</button>
+            <div style={{ fontFamily: "var(--serif)", fontSize: 22, fontWeight: 600, color: "var(--red)", marginBottom: 8 }}>
+              Quiz Auto-Submitted
+            </div>
+            <p style={{ color: "var(--text2)", fontSize: 14, marginBottom: 24 }}>
+              {cheatOverlay.message}
+            </p>
+            <button className="btn btn-danger" onClick={() => { setCheatOverlay(null); setPage("quizzes"); }}>
+              View Results
+            </button>
           </div>
         </div>
       )}
 
+      {/* ── Warning toast ── */}
+      {warningToast && (
+        <div style={{
+          position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(245,166,35,0.95)", color: "#000",
+          padding: "10px 20px", borderRadius: 10, zIndex: 9998,
+          fontSize: 13, fontWeight: 600, boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+          maxWidth: 480, textAlign: "center",
+        }}>
+          {warningToast.message}
+        </div>
+      )}
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: 16 }}>
-        {/* Question Panel */}
-        <div style={{ background: "var(--bg2)", border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", padding: 24, minHeight: 400 }}>
+
+        {/* ── Question Panel ── */}
+        <div style={{
+          background: "var(--bg2)", border: "1px solid var(--border)",
+          borderRadius: "var(--radius-lg)", padding: 24, minHeight: 400,
+        }}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex gap-2">
               <span className="badge badge-gray">Question {current + 1}/{questions.length}</span>
               <QTypeBadge type={q.type} />
-              <span className="badge badge-amber">{q.marks} marks</span>
+              <span className="badge badge-amber">{q.marks} mark{q.marks !== 1 ? "s" : ""}</span>
             </div>
             <button
               className={`btn btn-sm ${flagged.includes(current) ? "btn-primary" : "btn-ghost"}`}
-              onClick={() => setFlagged(f => f.includes(current) ? f.filter(x => x !== current) : [...f, current])}
+              onClick={() => setFlagged((f) => f.includes(current) ? f.filter((x) => x !== current) : [...f, current])}
             >
               <Icon name="flag" size={12} /> {flagged.includes(current) ? "Flagged" : "Flag"}
             </button>
           </div>
 
+          {/* Question text */}
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--text)", marginBottom: 24, lineHeight: 1.6 }}>
             {q.text}
           </div>
-          {q.image && (
-  <div
-    style={{
-      background: "var(--bg3)",
-      border: "1px solid var(--border)",
-      borderRadius: "var(--radius)",
-      padding: 12,
-      marginBottom: 16,
-    }}
-  >
-    <img
-      src={q.image}
-      alt="Question reference"
-      style={{
-        width: "100%",
-        maxHeight: 260,
-        objectFit: "contain",
-        borderRadius: 10,
-        display: "block",
-      }}
-    />
-  </div>
-)}
 
+          {/* Image */}
+          {q.image && (
+            <div style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}>
+              <img src={q.image} alt="Question reference" style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: 10, display: "block" }} />
+            </div>
+          )}
+
+          {/* MCQ */}
           {q.type === "mcq" && q.opts.map((opt, i) => (
-            <div key={i} className={`option-card ${answers[current] === i ? "selected" : ""}`} onClick={() => setAnswers(a => ({ ...a, [current]: i }))}>
-              <div className="option-letter">{["A", "B", "C", "D"][i]}</div>
+            <div key={i}
+              className={`option-card ${answers[current] === i ? "selected" : ""}`}
+              onClick={() => setAnswers((a) => ({ ...a, [current]: i }))}
+            >
+              <div className="option-letter">{["A","B","C","D"][i]}</div>
               <span style={{ fontSize: 14, color: "var(--text)" }}>{opt}</span>
             </div>
           ))}
 
+          {/* Short answer */}
           {q.type === "short" && (
-            <textarea className="input" style={{ minHeight: 160, resize: "vertical", fontFamily: "var(--sans)", lineHeight: 1.7 }}
-              placeholder="Write your answer here..." value={answers[current] || ""}
-              onChange={e => setAnswers(a => ({ ...a, [current]: e.target.value }))} />
+            <textarea
+              className="input"
+              style={{ minHeight: 160, resize: "vertical", fontFamily: "var(--sans)", lineHeight: 1.7 }}
+              placeholder="Write your answer here..."
+              value={answers[current] || ""}
+              onChange={(e) => setAnswers((a) => ({ ...a, [current]: e.target.value }))}
+            />
           )}
 
+          {/* Coding */}
           {q.type === "coding" && (
-  <EmbeddedCodingQuestion
-    question={q}
-    onAnswerChange={(code) => setAnswers(a => ({ ...a, [current]: code }))}
-    savedCode={answers[current] || ""}
-  />
-)}
+            <EmbeddedCodingQuestion
+              question={q}
+              onAnswerChange={(code) => setAnswers((a) => ({ ...a, [current]: code }))}
+              savedCode={answers[current] || ""}
+            />
+          )}
 
+          {/* Image question */}
           {q.type === "image" && (
-  <div>
-    {q.image ? (
-      <div
-        style={{
-          background: "var(--bg3)",
-          border: "1px solid var(--border)",
-          borderRadius: "var(--radius)",
-          padding: 12,
-          marginBottom: 16,
-        }}
-      >
-        <img
-          src={q.image}
-          alt="Question reference"
-          style={{
-            width: "100%",
-            maxHeight: 260,
-            objectFit: "contain",
-            borderRadius: 10,
-            display: "block",
-          }}
-        />
-      </div>
-    ) : (
-      <div
-        style={{
-          background: "var(--bg3)",
-          border: "1px dashed var(--border2)",
-          borderRadius: "var(--radius)",
-          height: 160,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: 16,
-          color: "var(--text3)",
-          fontSize: 13,
-        }}
-      >
-        No image attached for this question.
-      </div>
-    )}
+            <div>
+              {q.image ? (
+                <div style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}>
+                  <img src={q.image} alt="Question" style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: 10, display: "block" }} />
+                </div>
+              ) : (
+                <div style={{ background: "var(--bg3)", border: "1px dashed var(--border2)", borderRadius: "var(--radius)", height: 160, display: "flex", alignItems: "center", justifyContent: "center", marginBottom: 16, color: "var(--text3)", fontSize: 13 }}>
+                  No image attached.
+                </div>
+              )}
+              <input className="input" placeholder="Write your answer here..."
+                value={answers[current] || ""}
+                onChange={(e) => setAnswers((a) => ({ ...a, [current]: e.target.value }))} />
+            </div>
+          )}
 
-    <div className="form-group">
-      <label className="form-label">Your answer</label>
-      <input
-        className="input"
-        placeholder="Write your answer here..."
-        value={answers[current] || ""}
-        onChange={(e) =>
-          setAnswers((a) => ({ ...a, [current]: e.target.value }))
-        }
-      />
-    </div>
-  </div>
-)}
-
+          {/* Navigation */}
           <div className="flex items-center justify-between mt-6">
-            <button className="btn btn-secondary" disabled={current === 0} onClick={() => setCurrent(c => c - 1)}>← Previous</button>
-            <button className="btn btn-ghost btn-sm" onClick={triggerCheatWarning} style={{ fontSize: 11, color: "var(--text3)" }}>Simulate Tab Switch</button>
+            <button className="btn btn-secondary" disabled={current === 0}
+              onClick={() => navigateTo(current - 1)}>← Previous</button>
+
             {current < questions.length - 1
-              ? <button className="btn btn-primary" onClick={() => setCurrent(c => c + 1)}>Next →</button>
-              : (
-  <button className="btn btn-success" onClick={handleSubmitQuiz}>
-    Submit Quiz
-  </button>
-)}
+              ? <button className="btn btn-primary" onClick={() => navigateTo(current + 1)}>Next →</button>
+              : <button className="btn btn-success" onClick={handleManualSubmit}>Submit Quiz</button>
+            }
           </div>
         </div>
 
-        {/* Nav Panel */}
+        {/* ── Side panel ── */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ background: "var(--bg2)", border: `1px solid ${timeLeft < 300 ? "rgba(255,92,92,0.4)" : "var(--border)"}`, borderRadius: "var(--radius-lg)", padding: 16, textAlign: "center" }}>
-            <div style={{ fontFamily: "var(--mono)", fontSize: 36, fontWeight: 500, color: timeLeft < 300 ? "var(--red)" : "var(--text)" }}>{mins}:{secs}</div>
-            <div className="text-xs text-faint mt-1">Time remaining</div>
-            {violations > 0 && <div style={{ marginTop: 8, fontSize: 11, color: "var(--amber)" }}>⚠ {violations} violation{violations > 1 ? "s" : ""} detected</div>}
+
+          {/* Timer */}
+          <div style={{
+            background: "var(--bg2)",
+            border: `1px solid ${t < 300 ? "rgba(255,92,92,0.5)" : "var(--border)"}`,
+            borderRadius: "var(--radius-lg)", padding: 16, textAlign: "center",
+          }}>
+            <div style={{ fontFamily: "var(--mono)", fontSize: 36, fontWeight: 500, color: t < 300 ? "var(--red)" : "var(--text)" }}>
+              {mins}:{secs}
+            </div>
+            <div className="text-xs text-faint mt-1">Time remaining (server-synced)</div>
+            {security.violations > 0 && (
+              <div style={{ marginTop: 8, fontSize: 11, color: "var(--amber)" }}>
+                ⚠ {security.violations} violation{security.violations !== 1 ? "s" : ""} logged
+              </div>
+            )}
           </div>
 
+          {/* Navigator */}
           <div className="card card-sm">
             <div className="form-label mb-3">Question Navigator</div>
             <div className="q-grid">
               {questions.map((_, i) => (
-                <div key={i} className={`q-bubble ${getStatus(i)}`} onClick={() => setCurrent(i)}>{i + 1}</div>
+                <div key={i} className={`q-bubble ${getStatus(i)}`}
+                  onClick={() => navigateTo(i)}>{i + 1}</div>
               ))}
             </div>
             <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 4 }}>
-              {[["q-attempted", "Attempted"], ["q-unattempted", "Unattempted"], ["q-flagged", "Flagged"], ["q-current", "Current"]].map(([cls, label]) => (
+              {[["q-attempted","Attempted"],["q-unattempted","Unattempted"],["q-flagged","Flagged"],["q-current","Current"]].map(([cls, label]) => (
                 <div key={cls} className="flex items-center gap-2">
                   <div className={`q-bubble ${cls}`} style={{ width: 16, height: 16, fontSize: 9, aspectRatio: "unset" }} />
                   <span className="text-xs text-faint">{label}</span>
@@ -3119,6 +3186,7 @@ if (questions.length === 0) {
             </div>
           </div>
 
+          {/* Progress */}
           <div className="card card-sm">
             <div className="form-label mb-2">Progress</div>
             <div className="progress mb-2">
@@ -3126,6 +3194,26 @@ if (questions.length === 0) {
             </div>
             <div className="text-xs text-faint">{Object.keys(answers).length}/{questions.length} answered</div>
           </div>
+
+          {/* Security status */}
+          <div className="card card-sm">
+            <div className="form-label mb-2">Security Status</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              {[
+                ["Fullscreen",    attemptSettings.fullscreen, document.fullscreenElement != null],
+                ["Tab Detect",    attemptSettings.tabDetect,  true],
+                ["Copy Blocked",  attemptSettings.copyPaste,  true],
+              ].map(([label, enabled, active]) => (
+                <div key={label} className="flex items-center justify-between">
+                  <span className="text-xs text-faint">{label}</span>
+                  <span className={`badge ${enabled ? (active ? "badge-green" : "badge-amber") : "badge-gray"}`} style={{ fontSize: 10 }}>
+                    {enabled ? (active ? "Active" : "Inactive") : "Off"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
     </div>
@@ -3870,7 +3958,238 @@ function Notifications() {
     </div>
   );
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// ViolationReview component — paste inside app.jsx (before the closing brace)
+// Then add a "Violations" button to each quiz card in QuizManager:
+//
+//   <button className="btn btn-ghost btn-sm flex-1" onClick={() => setViolationsQuiz(q)}>
+//     <Icon name="flag" size={12} /> Violations
+//   </button>
+//
+// And add state + render case in QuizManager:
+//   const [violationsQuiz, setViolationsQuiz] = useState(null);
+//   ...
+//   if (violationsQuiz) return <ViolationReview quiz={violationsQuiz} onBack={() => setViolationsQuiz(null)} />;
+// ─────────────────────────────────────────────────────────────────────────────
 
+function ViolationReview({ quiz, onBack }) {
+  const [rows, setRows]               = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [selectedAttempt, setSelected] = useState(null);
+  const [detail, setDetail]           = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await violationsAPI.forQuiz(quiz.id);
+        setRows(data);
+      } catch (e) { console.error(e); }
+      setLoading(false);
+    })();
+  }, [quiz.id]);
+
+  // Group by attempt_id
+  const byAttempt = useMemo(() => {
+    const map = {};
+    rows.forEach((r) => {
+      if (!map[r.attempt_id]) {
+        map[r.attempt_id] = {
+          attempt_id:      r.attempt_id,
+          student_name:    r.student_name,
+          student_email:   r.student_email,
+          total_violations: r.total_violations,
+          attempt_status:  r.attempt_status,
+          score:           r.score,
+          auto_submitted:  r.auto_submitted,
+          events:          [],
+        };
+      }
+      map[r.attempt_id].events.push(r);
+    });
+    return Object.values(map).sort((a, b) => b.total_violations - a.total_violations);
+  }, [rows]);
+
+  const openDetail = async (attempt_id) => {
+    setSelected(attempt_id);
+    setDetailLoading(true);
+    try {
+      const data = await violationsAPI.forAttempt(attempt_id);
+      setDetail(data);
+    } catch (e) { console.error(e); }
+    setDetailLoading(false);
+  };
+
+  // ── Violation type badge colour ───────────────────────────────────────────
+  const typeBadge = (type) => {
+    const map = {
+      tab_switch:        "badge-red",
+      window_blur:       "badge-amber",
+      fullscreen_exit:   "badge-red",
+      copy_paste:        "badge-amber",
+      right_click:       "badge-gray",
+      keyboard_shortcut: "badge-amber",
+      idle_timeout:      "badge-blue",
+      code_run:          "badge-gray",
+      code_submit:       "badge-gray",
+      question_time:     "badge-gray",
+    };
+    return map[type] || "badge-gray";
+  };
+
+  // ── Detail panel ──────────────────────────────────────────────────────────
+  if (selectedAttempt && detail) {
+    const student = byAttempt.find((a) => a.attempt_id === selectedAttempt);
+    return (
+      <div className="fade-in">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <div className="section-title">Violation Detail</div>
+            <div className="section-subtitle">{student?.student_name} · {quiz.title}</div>
+          </div>
+          <button className="btn btn-secondary" onClick={() => { setSelected(null); setDetail(null); }}>
+            ← Back
+          </button>
+        </div>
+
+        <div className="grid-2 mb-4">
+          {/* Violation timeline */}
+          <div className="card">
+            <div className="section-title" style={{ fontSize: 15, marginBottom: 12 }}>Event Timeline</div>
+            {detailLoading ? (
+              <div className="ai-loading"><span className="ai-dot"/><span className="ai-dot"/><span className="ai-dot"/></div>
+            ) : detail.violations.length === 0 ? (
+              <div className="text-sm text-faint">No violation events recorded.</div>
+            ) : (
+              detail.violations.map((v, i) => (
+                <div key={i} className="flex items-start gap-3 mb-3" style={{ borderLeft: "2px solid var(--border)", paddingLeft: 12 }}>
+                  <div>
+                    <span className={`badge ${typeBadge(v.violation_type)}`}>{v.violation_type.replace(/_/g," ")}</span>
+                    {v.detail && <span className="text-xs text-faint" style={{ marginLeft: 6 }}>{v.detail}</span>}
+                    <div className="text-xs text-faint mt-1">{new Date(v.occurred_at).toLocaleTimeString()}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* Time per question */}
+          <div className="card">
+            <div className="section-title" style={{ fontSize: 15, marginBottom: 12 }}>Time per Question</div>
+            {detailLoading ? (
+              <div className="ai-loading"><span className="ai-dot"/><span className="ai-dot"/><span className="ai-dot"/></div>
+            ) : detail.question_times.length === 0 ? (
+              <div className="text-sm text-faint">No time data recorded.</div>
+            ) : (
+              detail.question_times.map((qt, i) => {
+                const secs = Math.round(qt.time_spent_ms / 1000);
+                const pct  = Math.min(100, (secs / 300) * 100); // 5 min = 100%
+                return (
+                  <div key={i} className="mb-3">
+                    <div className="flex items-center justify-between mb-1">
+                      <span style={{ fontSize: 12, color: "var(--text2)" }}>{qt.question_text?.substring(0,60)}…</span>
+                      <span style={{ fontSize: 12, fontWeight: 600 }}>{secs}s</span>
+                    </div>
+                    <div className="progress" style={{ height: 4 }}>
+                      <div className="progress-fill" style={{ width: `${pct}%`, background: secs > 180 ? "var(--amber)" : "var(--accent)" }} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Summary table ─────────────────────────────────────────────────────────
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <div className="section-title">Violation Review: {quiz.title}</div>
+          <div className="section-subtitle">Security events logged during this quiz</div>
+        </div>
+        <button className="btn btn-secondary" onClick={onBack}>← Back to Quizzes</button>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid-4 mb-4">
+        {[
+          ["Total Students",    byAttempt.length],
+          ["With Violations",   byAttempt.filter(a => a.total_violations > 0).length],
+          ["Auto-submitted",    byAttempt.filter(a => a.auto_submitted).length],
+          ["Total Events",      rows.length],
+        ].map(([label, val]) => (
+          <div key={label} className="stat-card">
+            <div className="stat-label">{label}</div>
+            <div className="stat-value">{val}</div>
+          </div>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="card" style={{ textAlign: "center", padding: 40 }}>
+          <div className="ai-loading" style={{ justifyContent: "center" }}>
+            <span className="ai-dot"/><span className="ai-dot"/><span className="ai-dot"/>
+          </div>
+        </div>
+      ) : byAttempt.length === 0 ? (
+        <div className="card">
+          <div className="text-sm text-faint">No violation events recorded for this quiz.</div>
+        </div>
+      ) : (
+        <div className="card">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Student</th>
+                <th>Status</th>
+                <th>Score</th>
+                <th>Tab Switch</th>
+                <th>Blur</th>
+                <th>Fullscreen</th>
+                <th>Copy/Paste</th>
+                <th>Idle</th>
+                <th>Auto-sub</th>
+                <th>Total</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {byAttempt.map((a) => {
+                const count = (type) => a.events.filter(e => e.violation_type === type).length;
+                return (
+                  <tr key={a.attempt_id}>
+                    <td>
+                      <div style={{ fontWeight: 500 }}>{a.student_name}</div>
+                      <div className="text-xs text-faint">{a.student_email}</div>
+                    </td>
+                    <td><StatusBadge status={a.attempt_status} /></td>
+                    <td>{a.score ?? "—"}</td>
+                    <td><span className={`badge ${count("tab_switch") > 0 ? "badge-red" : "badge-gray"}`}>{count("tab_switch")}</span></td>
+                    <td><span className={`badge ${count("window_blur") > 2 ? "badge-amber" : "badge-gray"}`}>{count("window_blur")}</span></td>
+                    <td><span className={`badge ${count("fullscreen_exit") > 0 ? "badge-red" : "badge-gray"}`}>{count("fullscreen_exit")}</span></td>
+                    <td><span className={`badge ${count("copy_paste") > 0 ? "badge-amber" : "badge-gray"}`}>{count("copy_paste")}</span></td>
+                    <td><span className={`badge ${count("idle_timeout") > 0 ? "badge-amber" : "badge-gray"}`}>{count("idle_timeout")}</span></td>
+                    <td>{a.auto_submitted ? <span className="badge badge-red">Yes</span> : <span className="badge badge-gray">No</span>}</td>
+                    <td><span className={`badge ${a.total_violations > 5 ? "badge-red" : a.total_violations > 2 ? "badge-amber" : "badge-gray"}`}>{a.total_violations}</span></td>
+                    <td>
+                      <button className="btn btn-ghost btn-sm" onClick={() => openDetail(a.attempt_id)}>
+                        <Icon name="eye" size={12} /> Detail
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 // ─── Main App ──────────────────────────────────────────────────────────────────
 export default function App() {
 const [authed, setAuthed] = useState(false);
