@@ -14,6 +14,7 @@ import {
   questionsAPI,
   batchesAPI,
   usersAPI,
+  attemptsAPI,
   setToken
 } from "./api";
 import Editor from "@monaco-editor/react";
@@ -2750,12 +2751,14 @@ function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
   const [showCheat, setShowCheat] = useState(false);
   const [violations, setViolations] = useState(0);
   const [submitted, setSubmitted] = useState(false);
+  const [attemptId, setAttemptId] = useState(null);
 
  const questions = (quiz?.questionList || []).map((question, index) => ({
   id: question.id || index,
   text: question.questionText || question.text || "Untitled question",
   type: question.type || "mcq",
   opts: question.options || question.opts || [],
+    optionIds: question.optionIds || [],
   correct: question.correctOption ?? question.correct,
   marks: Number(question.marks) || 1,
   topic: question.topic || "",
@@ -2779,6 +2782,27 @@ function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
   difficulty: question.difficulty || "medium",
   test_cases: question.test_cases || [],
 }));
+useEffect(() => {
+  const startAttempt = async () => {
+    if (!quiz?.id) return;
+
+    try {
+      const data = await attemptsAPI.start(quiz.id);
+      setAttemptId(data.attempt_id);
+    } catch (e) {
+      if (e.message === "Already submitted") {
+        alert("You have already submitted this quiz.");
+        setPage("quizzes");
+      } else {
+        console.error("startAttempt:", e);
+        alert("Could not start quiz attempt. Please try again.");
+        setPage("quizzes");
+      }
+    }
+  };
+
+  startAttempt();
+}, [quiz?.id, currentUser?.id]);
 if (!quiz) {
   return (
     <div className="fade-in">
@@ -2849,48 +2873,77 @@ if (questions.length === 0) {
   return { score, maxScore };
 };
 
-  const handleSubmitQuiz = () => {
+const handleSubmitQuiz = async () => {
   const confirmSubmit = confirm(
     "Submit quiz? You cannot change answers after submitting."
   );
 
   if (!confirmSubmit) return;
 
-   const answeredCount = Object.keys(answers).length;
-   const { score, maxScore } = calculateScore();
-
-  const attemptToSave = {
-    id: Date.now(),
-    quizId: quiz.id,
-    quizTitle: quiz.title,
-    studentId: currentUser?.id,
-    studentName: currentUser?.name || "Unknown Student",
-    studentEmail: currentUser?.email || "",
-    batchId: currentUser?.batchId || "",
-    answers,
-    answeredCount,
-    totalQuestions: questions.length,
-    score,
-  maxScore,
-    violations,
-    submittedAt: new Date().toLocaleString(),
-  };
-
-  setAttempts((prev) => {
-  const alreadyAttempted = prev.some(
-    (attempt) =>
-      attempt.quizId === quiz?.id && attempt.studentId === currentUser?.id
-  );
-
-  if (alreadyAttempted) {
-    alert("You have already submitted this quiz.");
-    return prev;
+  if (!attemptId) {
+    alert("Attempt has not started yet. Please wait a second and try again.");
+    return;
   }
 
-  return [attemptToSave, ...prev];
-});
+  const answeredCount = Object.keys(answers).length;
+  const { score, maxScore } = calculateScore();
 
-  setSubmitted(true);
+  try {
+    for (const [index, answer] of Object.entries(answers)) {
+      const question = questions[Number(index)];
+
+      await attemptsAPI.saveAnswer(attemptId, {
+  question_id: question.id,
+  selected_option:
+    question.type === "mcq"
+      ? question.optionIds?.[Number(answer)] ?? null
+      : null,
+  answer_text:
+    question.type === "mcq"
+      ? ""
+      : String(answer ?? ""),
+});
+    }
+
+    const submittedAttempt = await attemptsAPI.submit(attemptId);
+
+    const attemptToSave = {
+      id: attemptId,
+      quizId: quiz.id,
+      quizTitle: quiz.title,
+      studentId: currentUser?.id,
+      studentName: currentUser?.name || "Unknown Student",
+      studentEmail: currentUser?.email || "",
+      batchId: currentUser?.batchId || "",
+      answers,
+      answeredCount,
+      totalQuestions: questions.length,
+      score: submittedAttempt.score ?? score,
+      maxScore,
+      violations,
+      submittedAt: new Date().toLocaleString(),
+      status: "completed",
+      evaluated: false,
+      finalScore: submittedAttempt.score ?? score,
+    };
+
+    setAttempts((prev) => {
+      const alreadyAttempted = prev.some(
+        (attempt) =>
+          attempt.quizId === quiz?.id &&
+          attempt.studentId === currentUser?.id
+      );
+
+      if (alreadyAttempted) return prev;
+
+      return [attemptToSave, ...prev];
+    });
+
+    setSubmitted(true);
+  } catch (e) {
+    console.error("submit attempt:", e);
+    alert("Could not submit quiz. Please check backend terminal for errors.");
+  }
 };
 
   const triggerCheatWarning = () => {
@@ -3889,7 +3942,11 @@ useEffect(() => {
   const storedToken = localStorage.getItem("examify_token");
   if (storedUser && storedToken) {
     const user = JSON.parse(storedUser);
-    const normalized = { ...user, batchId: user.batchId ?? user.batch_id ?? null };
+    const normalized = {
+  ...user,
+  id: user.id ?? user.user_id ?? null,
+  batchId: user.batchId ?? user.batch_id ?? null,
+};
     setCurrentUser(normalized);
     setRole(normalized.role.toLowerCase());
     setAuthed(true);
@@ -3901,7 +3958,14 @@ useEffect(() => {
   if (!authed) return;
   fetchQuizzes();
   fetchBatches();
-  if (role === "teacher") fetchUsers();
+
+  if (role === "teacher") {
+    fetchUsers();
+  }
+
+  if (role === "student") {
+    fetchAttempts();
+  }
 }, [authed, role]);
 
 // ─── REPLACEMENT for the fetchQuizzes function in app.jsx ────────────────────
@@ -3938,13 +4002,17 @@ const fetchQuizzes = async () => {
             test_cases: question.test_cases ?? [],
             // MCQ options
             options:
-              question.type === "mcq"
-                ? (question.options || []).map((o) => o.option_text)
-                : [],
-            correctOption:
-              question.type === "mcq"
-                ? (question.options || []).findIndex((o) => o.is_correct)
-                : undefined,
+  question.type === "mcq"
+    ? (question.options || []).map((o) => o.option_text)
+    : [],
+optionIds:
+  question.type === "mcq"
+    ? (question.options || []).map((o) => o.option_id)
+    : [],
+correctOption:
+  question.type === "mcq"
+    ? (question.options || []).findIndex((o) => o.is_correct)
+    : undefined,
           }));
         } catch (e) {
           console.error("fetchQuestions for quiz", q.quiz_id, e);
@@ -4006,6 +4074,15 @@ const fetchUsers = async () => {
       batchId: u.batch_id ?? null,
     })));
   } catch (e) { console.error("fetchUsers:", e); }
+};
+
+const fetchAttempts = async () => {
+  try {
+    const data = await attemptsAPI.listMine();
+    setAttempts(data);
+  } catch (e) {
+    console.error("fetchAttempts:", e);
+  }
 };
 
   const handleLogin = (user) => {

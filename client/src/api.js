@@ -83,6 +83,7 @@ export const questionsAPI = {
 
 // ─── Attempts ────────────────────────────────────────────────────────────────
 export const attemptsAPI = {
+  listMine:   ()                     => api.get("/api/student/attempts"),
   start:      (quiz_id)              => api.post(`/api/quizzes/${quiz_id}/attempt/start`, {}),
   saveAnswer: (attempt_id, data)     => api.post(`/api/attempts/${attempt_id}/answer`, data),
   submit:     (attempt_id)           => api.post(`/api/attempts/${attempt_id}/submit`, {}),

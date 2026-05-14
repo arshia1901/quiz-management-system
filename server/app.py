@@ -255,21 +255,32 @@ def delete_user(user_id):
 @app.route("/api/batches", methods=["GET"])
 @require_auth()
 def list_batches():
-    batches = query("SELECT * FROM batch ORDER BY created_at DESC", fetchall=True)
+    if request.user_role == "TEACHER":
+        batches = query(
+            "SELECT * FROM batch WHERE created_by=%s ORDER BY created_at DESC",
+            (request.user_id,),
+            fetchall=True
+        )
+    else:
+        batches = query("SELECT * FROM batch ORDER BY created_at DESC", fetchall=True)
+
     result = []
     for b in batches:
         b = dict(b)
         b["batch_id"] = str(b["batch_id"])
-        # attach student list
+
         students = query(
             """SELECT u.user_id, u.name, u.email
                FROM batch_enrollment be
                JOIN users u ON u.user_id = be.student_id
                WHERE be.batch_id = %s ORDER BY u.name""",
-            (b["batch_id"],), fetchall=True
+            (b["batch_id"],),
+            fetchall=True
         )
+
         b["students"] = [dict(s) for s in students]
         result.append(b)
+
     return jsonify(result)
 
 
@@ -646,6 +657,43 @@ def start_attempt(quiz_id):
         (attempt_id, quiz_id, request.user_id), commit=True
     )
     return jsonify({"attempt_id": attempt_id, "resumed": False}), 201
+
+@app.route("/api/student/attempts", methods=["GET"])
+@require_auth(roles=["STUDENT"])
+def student_attempts():
+    rows = query(
+        """SELECT
+              qa.attempt_id,
+              qa.quiz_id,
+              qa.student_id,
+              qa.status,
+              qa.score,
+              qa.submit_time,
+              COALESCE(SUM(qu.marks), 0) AS max_score
+           FROM quiz_attempt qa
+           JOIN quiz q ON q.quiz_id = qa.quiz_id
+           LEFT JOIN question qu ON qu.quiz_id = q.quiz_id
+           WHERE qa.student_id = %s
+           GROUP BY qa.attempt_id, qa.quiz_id, qa.student_id, qa.status, qa.score, qa.submit_time
+           ORDER BY qa.submit_time DESC NULLS LAST""",
+        (request.user_id,),
+        fetchall=True
+    )
+
+    return jsonify([
+        {
+            "id": str(r["attempt_id"]),
+            "quizId": str(r["quiz_id"]),
+            "studentId": str(r["student_id"]),
+            "status": r["status"],
+            "score": float(r["score"] or 0),
+            "maxScore": float(r["max_score"] or 0),
+            "submittedAt": r["submit_time"].isoformat() if r["submit_time"] else "",
+            "evaluated": r["status"] == "completed",
+            "finalScore": float(r["score"] or 0),
+        }
+        for r in rows
+    ])
 
 
 @app.route("/api/attempts/<attempt_id>/answer", methods=["POST"])
