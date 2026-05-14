@@ -31,13 +31,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
-CORS(app, origins=["http://localhost:5173", "http://localhost:3000"])  # Vite / CRA
+CORS(app, 
+     origins=["http://localhost:5173", "http://localhost:3000"],
+     methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"],supports_credentials=True)  # Vite / CRA
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:sK23102004!@localhost:5432/examify")
 JWT_SECRET   = os.getenv("JWT_SECRET", "examify_dev_secret_change_me")
 JWT_EXPIRY   = int(os.getenv("JWT_EXPIRY_HOURS", 8))
-JUDGE0_URL   = os.getenv("JUDGE0_URL", "http://localhost:5001")
+JUDGE0_URL = os.getenv("JUDGE0_URL", "https://ce.judge0.com")
 
 
 # ─── DB helpers ──────────────────────────────────────────────────────────────
@@ -494,48 +497,61 @@ def duplicate_quiz(quiz_id):
 # ═══════════════════════════════════════════════════════════════════════════════
 # QUESTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
-
-@app.route("/api/quizzes/<quiz_id>/questions", methods=["GET"])
+@app.route("/api/quizzes/<quiz_id>/questions", methods=["GET", "POST"])
 @require_auth()
-def list_questions(quiz_id):
-    questions = query(
-        "SELECT * FROM question WHERE quiz_id=%s ORDER BY created_at",
-        (quiz_id,), fetchall=True
-    )
-    result = []
-    for q in (questions or []):
-        q = dict(q)
-        q["question_id"] = str(q["question_id"])
-        if q["quiz_id"]:
-            q["quiz_id"] = str(q["quiz_id"])
-        if q["type"] == "mcq":
-            opts = query(
-                "SELECT option_id, option_text, is_correct, display_order FROM option_choice WHERE question_id=%s ORDER BY display_order",
-                (q["question_id"],), fetchall=True
-            )
-            q["options"] = [
-                {
-                    "option_id": str(o["option_id"]),
-                    "option_text": o["option_text"],
-                    "is_correct": o["is_correct"],
-                    "display_order": o["display_order"],
-                }
-                for o in (opts or [])
-            ]
-        if q["type"] == "coding":
-            tcs = query(
-                "SELECT * FROM coding_testcase WHERE question_id=%s ORDER BY display_order",
-                (q["question_id"],), fetchall=True
-            )
-            q["test_cases"] = [dict(t) for t in (tcs or [])]
-        result.append(q)
-    return jsonify(result)
+def questions_handler(quiz_id):
+    if request.method == "GET":
+        questions = query(
+            "SELECT * FROM question WHERE quiz_id=%s ORDER BY created_at",
+            (quiz_id,), fetchall=True
+        )
+        result = []
+        for q in (questions or []):
+            q = dict(q)
+            q["question_id"] = str(q["question_id"])
+            if q["quiz_id"]:
+                q["quiz_id"] = str(q["quiz_id"])
+            if q["type"] == "mcq":
+                opts = query(
+                    """SELECT option_id, option_text, is_correct, display_order
+                       FROM option_choice WHERE question_id=%s ORDER BY display_order""",
+                    (q["question_id"],), fetchall=True
+                )
+                q["options"] = [
+                    {
+                        "option_id": str(o["option_id"]),
+                        "option_text": o["option_text"],
+                        "is_correct": o["is_correct"],
+                        "display_order": o["display_order"],
+                    }
+                    for o in (opts or [])
+                ]
+            if q["type"] == "coding":
+                tcs = query(
+                    """SELECT testcase_id, input_data, expected_output, is_hidden, display_order
+                       FROM coding_testcase WHERE question_id=%s ORDER BY display_order""",
+                    (q["question_id"],), fetchall=True
+                )
+                q["test_cases"] = [
+                    {
+                        "testcase_id": str(t["testcase_id"]),
+                        "input_data": t["input_data"],
+                        "expected_output": t["expected_output"],
+                        "is_hidden": t["is_hidden"],
+                        "display_order": t["display_order"],
+                    }
+                    for t in (tcs or [])
+                ]
+            result.append(q)
+        return jsonify(result)
 
-@app.route("/api/quizzes/<quiz_id>/questions", methods=["POST"])
-@require_auth(roles=["TEACHER", "ADMIN"])
-def add_question(quiz_id):
+    # POST — teacher adds a question
+    if request.user_role not in ("TEACHER", "ADMIN"):
+        return jsonify({"error": "Forbidden"}), 403
+
     d = request.json or {}
     q_id = str(uuid.uuid4())
+
     query(
         """INSERT INTO question
             (question_id, quiz_id, question_text, type, topic, marks, difficulty,
@@ -543,40 +559,61 @@ def add_question(quiz_id):
              problem_title, problem_description, constraints_text,
              sample_input, sample_output, starter_code, tags, subtopic)
            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
-        (q_id, quiz_id, d.get("questionText"), d.get("type", "mcq"),
-         d.get("topic"), d.get("marks", 1), d.get("difficulty", "medium"),
-         d.get("imageData"), d.get("expectedAnswer"), d.get("keywords"),
-         d.get("evaluationMode", "manual"), d.get("problemTitle"),
-         d.get("problemDescription"), d.get("constraints"),
-         d.get("sampleInput"), d.get("sampleOutput"), d.get("starterCode"),
-         d.get("tags"), d.get("subtopic")),
+        (q_id, quiz_id,
+         d.get("questionText"),
+         d.get("type", "mcq"),
+         d.get("topic"),
+         d.get("marks", 1),
+         d.get("difficulty", "medium"),
+         d.get("imageData"),
+         d.get("expectedAnswer"),
+         d.get("keywords"),
+         d.get("evaluationMode", "manual"),
+         d.get("problemTitle"),
+         d.get("problemDescription"),
+         d.get("constraints"),
+         d.get("sampleInput"),
+         d.get("sampleOutput"),
+         d.get("starterCode"),
+         d.get("tags"),
+         d.get("subtopic")),
         commit=True
     )
 
     if d.get("type") == "mcq":
         for i, opt in enumerate(d.get("options", [])):
             query(
-                "INSERT INTO option_choice (question_id, option_text, is_correct, display_order) VALUES (%s,%s,%s,%s)",
+                """INSERT INTO option_choice
+                   (question_id, option_text, is_correct, display_order)
+                   VALUES (%s,%s,%s,%s)""",
                 (q_id, opt, i == d.get("correctOption", 0), i),
                 commit=True
             )
 
     if d.get("type") == "coding":
-        test_cases = d.get("testCasesParsed", [])
-        for i, tc in enumerate(test_cases):
+        for i, tc in enumerate(d.get("testCasesParsed", [])):
             query(
-                "INSERT INTO coding_testcase (question_id, input_data, expected_output, is_hidden, display_order) VALUES (%s,%s,%s,%s,%s)",
-                (q_id, tc.get("input", ""), tc.get("expected", ""), tc.get("hidden", True), i),
+                """INSERT INTO coding_testcase
+                   (question_id, input_data, expected_output, is_hidden, display_order)
+                   VALUES (%s,%s,%s,%s,%s)""",
+                (q_id,
+                 tc.get("input", ""),
+                 tc.get("expected", ""),
+                 tc.get("hidden", True),
+                 i),
                 commit=True
             )
 
-    # update question count on quiz
     query(
-        "UPDATE quiz SET total_marks = (SELECT COALESCE(SUM(marks),0) FROM question WHERE quiz_id=%s) WHERE quiz_id=%s",
+        """UPDATE quiz
+           SET total_marks = (SELECT COALESCE(SUM(marks),0) FROM question WHERE quiz_id=%s)
+           WHERE quiz_id=%s""",
         (quiz_id, quiz_id), commit=True
     )
 
     return jsonify({"question_id": q_id}), 201
+
+
 
 
 @app.route("/api/questions/<question_id>", methods=["DELETE"])
@@ -691,36 +728,45 @@ def record_violation(attempt_id):
 LANG_MAP = {"python": 71, "cpp": 54, "java": 62, "c": 50}
 
 
-@app.route("/run", methods=["POST"])
+@app.route("/run", methods=["POST", "OPTIONS"])
 def run_code():
-    """Proxy to Judge0 for sample run."""
-    d        = request.json or {}
-    code     = d.get("code", "")
-    lang_id  = d.get("language_id", 71)
-    stdin    = d.get("stdin", "")
-
+    if request.method == "OPTIONS":
+        response = jsonify({})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
+        response.headers.add("Access-Control-Allow-Methods", "POST,OPTIONS")
+        return response, 204
     try:
+        d = request.json or {}
+        code = d.get("code", "") or ""
+        lang_id = int(d.get("language_id", 71))
+        stdin = d.get("stdin") or ""
         resp = requests.post(
-            f"{JUDGE0_URL}/submissions?base64_encoded=false&wait=true",
-            json={"source_code": code, "language_id": lang_id, "stdin": stdin},
-            timeout=15
+            "https://ce.judge0.com/submissions?base64_encoded=false&wait=true",
+            json={"source_code": code, "language_id": lang_id, "stdin": stdin or None},
+            headers={"Content-Type": "application/json"},
+            timeout=30
         )
         result = resp.json()
-        stdout  = result.get("stdout") or ""
-        stderr  = result.get("stderr") or ""
+        stdout = result.get("stdout") or ""
+        stderr = result.get("stderr") or ""
         compile_out = result.get("compile_output") or ""
-        status  = result.get("status", {}).get("description", "")
-
+        status = result.get("status", {}).get("description", "")
         output = stdout or stderr or compile_out or status
-        return jsonify({"output": output.strip(), "verdict": status})
+        response = jsonify({"output": output.strip(), "verdict": status})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response
     except Exception as e:
-        return jsonify({"output": "", "error": str(e)}), 500
+        response = jsonify({"output": "", "error": str(e)})
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        return response, 500
 
 
-@app.route("/submit", methods=["POST"])
+@app.route("/submit", methods=["POST", "OPTIONS"])
 def submit_code():
-    """Run code against all test cases via Judge0."""
-    d         = request.json or {}
+    if request.method == "OPTIONS":
+        return "", 204
+    d = request.json or {}
     code      = d.get("code", "")
     lang_id   = d.get("language_id", 71)
     test_cases = d.get("test_cases", [])
@@ -733,9 +779,10 @@ def submit_code():
     for tc in test_cases:
         try:
             resp = requests.post(
-                f"{JUDGE0_URL}/submissions?base64_encoded=false&wait=true",
-                json={"source_code": code, "language_id": lang_id, "stdin": tc.get("input", "")},
-                timeout=15
+             f"{JUDGE0_URL}/submissions?base64_encoded=false&wait=true",
+            json={"source_code": code, "language_id": lang_id, "stdin": tc.get("input", "")},
+            headers={"Content-Type": "application/json"},
+            timeout=15
             )
             result = resp.json()
             stdout = (result.get("stdout") or "").strip()

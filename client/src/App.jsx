@@ -1797,80 +1797,95 @@ function QuestionPool() {
 }
 
 // ─── Coding Interface ──────────────────────────────────────────────────────────
+// ─── Coding Interface ──────────────────────────────────────────────────────────
+// DROP-IN REPLACEMENT for the CodingInterface function in app.jsx
+// Replace the entire CodingInterface function with this one.
+
 function CodingInterface({ quizzes, quizId }) {
- 
-  // ── derive the active quiz & its coding questions ──────────────────────────
   const activeQuiz = useMemo(
     () => quizzes?.find((q) => q.id === quizId) || quizzes?.[0] || null,
     [quizzes, quizId]
   );
- 
+
   const codingQuestions = useMemo(
     () => (activeQuiz?.questionList || []).filter((q) => q.type === "coding"),
     [activeQuiz]
   );
- 
-  // ── state ──────────────────────────────────────────────────────────────────
+
+  const STARTER_CODE = {
+    python: (sc) => sc || `def solve():\n    # write your solution here\n    pass\n\nsolve()`,
+    cpp: () => `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // write your solution here\n    return 0;\n}`,
+    java: () => `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        // write your solution here\n    }\n}`,
+    c: () => `#include <stdio.h>\n\nint main() {\n    // write your solution here\n    return 0;\n}`,
+  };
+
+  const LANG_ID = { python: 71, cpp: 54, java: 62, c: 50 };
+
   const [questionIndex, setQuestionIndex] = useState(0);
-  const [lang, setLang]                   = useState("python");
-  const [codeMap, setCodeMap]             = useState({});   // { `${qId}_${lang}`: code }
-  const [output, setOutput]               = useState("");
-  const [running, setRunning]             = useState(false);
-  const [submitting, setSubmitting]       = useState(false);
-  const [activeTab, setActiveTab]         = useState("output");
-  const [customInput, setCustomInput]     = useState("");
-  const [verdict, setVerdict]             = useState("");
-  const [testResults, setTestResults]     = useState([]);
+  const [lang, setLang] = useState("python");
+  const [codeMap, setCodeMap] = useState({});
+  const [output, setOutput] = useState("");
+  const [running, setRunning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [activeTab, setActiveTab] = useState("output");
+  const [customInput, setCustomInput] = useState("");
+  const [customExpected, setCustomExpected] = useState("");
+  const [verdict, setVerdict] = useState("");
+  const [testResults, setTestResults] = useState([]);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [warnings, setWarnings] = useState(0);
+  const [leftWidth, setLeftWidth] = useState(45);
   const [timeLeft, setTimeLeft] = useState(() => {
-  const duration = Number(quiz?.duration) || 45;
-  return duration * 60;
-});
-  const [warnings, setWarnings]           = useState(0);
-  const [leftWidth, setLeftWidth]         = useState(45);
-  const isDragging                        = useRef(false);
- 
-  // ── current question ───────────────────────────────────────────────────────
+    const duration = Number(activeQuiz?.duration) || 45;
+    return duration * 60;
+  });
+  const isDragging = useRef(false);
+
   const question = codingQuestions[questionIndex] || null;
- 
-  // ── code for (question, language) pair ────────────────────────────────────
   const codeKey = question ? `${question.id}_${lang}` : null;
- 
+
   const code = codeKey
-    ? (codeMap[codeKey] ??
-        (lang === "python"
-          ? question?.starterCode ||
-            `def solve():\n    # write your solution here\n    pass\n\nsolve()`
-          : lang === "cpp"
-          ? `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // write your solution here\n    return 0;\n}`
-          : lang === "java"
-          ? `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        // write your solution here\n    }\n}`
-          : `#include <stdio.h>\n\nint main() {\n    // write your solution here\n    return 0;\n}`))
+    ? (codeMap[codeKey] ?? STARTER_CODE[lang](question?.starterCode))
     : "";
- 
+
   const setCode = (val) => {
     if (!codeKey) return;
     setCodeMap((prev) => ({ ...prev, [codeKey]: val }));
   };
- 
-  // ── timer ──────────────────────────────────────────────────────────────────
+
+  const resetCode = () => {
+    if (!codeKey) return;
+    if (!confirm("Reset code to starter template?")) return;
+    setCodeMap((prev) => ({
+      ...prev,
+      [codeKey]: STARTER_CODE[lang](question?.starterCode),
+    }));
+    setOutput("");
+    setVerdict("");
+    setTestResults([]);
+  };
+
+  // Timer
   useEffect(() => {
     const t = setInterval(() => setTimeLeft((p) => (p > 0 ? p - 1 : 0)), 1000);
     return () => clearInterval(t);
   }, []);
- 
-  // ── tab-switch detection ───────────────────────────────────────────────────
+
+  // Tab-switch detection
   useEffect(() => {
-    const handle = () => { if (document.hidden) setWarnings((p) => p + 1); };
+    const handle = () => {
+      if (document.hidden) setWarnings((p) => p + 1);
+    };
     document.addEventListener("visibilitychange", handle);
     return () => document.removeEventListener("visibilitychange", handle);
   }, []);
- 
-  // ── resize drag ───────────────────────────────────────────────────────────
+
+  // Resize drag
   useEffect(() => {
     const onMove = (e) => {
       if (!isDragging.current) return;
       const pct = (e.clientX / window.innerWidth) * 100;
-      if (pct >= 25 && pct <= 75) setLeftWidth(pct);
+      if (pct >= 20 && pct <= 80) setLeftWidth(pct);
     };
     const onUp = () => { isDragging.current = false; };
     window.addEventListener("mousemove", onMove);
@@ -1880,78 +1895,72 @@ function CodingInterface({ quizzes, quizId }) {
       window.removeEventListener("mouseup", onUp);
     };
   }, []);
- 
-  // ── helpers ────────────────────────────────────────────────────────────────
+
+  // Fullscreen keyboard shortcut
+  useEffect(() => {
+    const handleKey = (e) => {
+      if (e.key === "F11" || (e.key === "Escape" && isFullscreen)) {
+        e.preventDefault();
+        setIsFullscreen((f) => !f);
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [isFullscreen]);
+
   const formatTime = (s) =>
     `${String(Math.floor(s / 3600)).padStart(2, "0")}:${String(
       Math.floor((s % 3600) / 60)
     ).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
- 
-  // Judge0 language IDs
-  const LANG_ID = { python: 71, cpp: 54, java: 62, c: 50 };
- 
-  // parse "Input: ...\nOutput: ..." blocks from testCases textarea
+
   const parseTestCases = (raw = "") => {
     const blocks = raw.trim().split(/\n\s*\n/).filter(Boolean);
     return blocks.map((block, i) => {
-      const inMatch  = block.match(/Input:\s*(.+?)(?=Output:|$)/si);
+      const inMatch = block.match(/Input:\s*(.+?)(?=Output:|$)/si);
       const outMatch = block.match(/Output:\s*(.+)/si);
       return {
         id: i + 1,
-        input:  inMatch  ? inMatch[1].trim()  : "",
+        input: inMatch ? inMatch[1].trim() : "",
         expected: outMatch ? outMatch[1].trim() : "",
       };
     });
   };
- 
-  // ── run (sample test cases only) ──────────────────────────────────────────
+
   const runCode = async () => {
     if (!code.trim()) { setOutput("No code to run."); return; }
     setRunning(true);
     setVerdict("");
-    setOutput("Running...");
-    
+    setOutput("Running…");
     try {
-      const res = await fetch("http://localhost:5000/run", {
+      const res = await fetch("http://localhost:8000/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           code,
-          language_id: LANG_ID[lang] || 71,
-          stdin: customInput ||
-            (question?.sampleInput ? question.sampleInput : ""),
+         language_id: LANG_ID[lang] || 71,
+         stdin: customInput || question?.sampleInput || "",
         }),
       });
-     const data = await res.json();
-const rawOutput = data.output || data.error || "No output";
-setOutput(rawOutput);
+      const data = await res.json();
+      const rawOutput = data.output || data.error || "No output";
+      setOutput(rawOutput);
 
-if (activeTab === "custom" && question?.sampleOutput) {
-  // normalize: trim each line, remove empty lines, rejoin
-  const normalize = (s) =>
-    s.split("\n")
-     .map((l) => l.trim())
-     .filter((l) => l.length > 0)
-     .join("\n");
-
-  const got      = normalize(rawOutput);
-  const expected = normalize(question.sampleOutput);
-
-  console.log("GOT:", JSON.stringify(got));
-  console.log("EXPECTED:", JSON.stringify(expected));
-
-  setVerdict(got === expected ? "Accepted" : "Wrong Answer");
+      if (question?.sampleOutput && !customInput) {
+  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
+  setVerdict(norm(rawOutput) === norm(question.sampleOutput) ? "Accepted" : "Wrong Answer");
+} else if (customInput && customExpected) {
+  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
+  setVerdict(norm(rawOutput) === norm(customExpected) ? "Accepted" : "Wrong Answer");
 } else {
-  setVerdict(data.verdict || "");
-
+  setVerdict("");
 }
     } catch {
-      setOutput("Error: could not reach execution server.");
+      setOutput("Error: could not reach execution server at localhost:8000");
+      setVerdict("Error");
     }
     setRunning(false);
   };
- 
-  // ── submit (hidden test cases) ─────────────────────────────────────────────
+
   const submitCode = async () => {
     if (!code.trim()) { setOutput("No code to submit."); return; }
     setSubmitting(true);
@@ -1959,13 +1968,21 @@ if (activeTab === "custom" && question?.sampleOutput) {
     setTestResults([]);
     setActiveTab("tests");
     try {
-      const hiddenCases = parseTestCases(question?.testCases || "");
-      // fall back to sample if no hidden cases defined
-      const cases = hiddenCases.length
-        ? hiddenCases
-        : [{ id: 1, input: question?.sampleInput || "", expected: question?.sampleOutput || "" }];
- 
-      const res = await fetch("http://localhost:5000/submit", {
+      // Use stored test cases from DB, fall back to parsed from textarea, then sample
+      const storedCases = question?.test_cases || [];
+      const parsedCases = parseTestCases(question?.testCases || "");
+      const sampleCase = [{ id: 1, input: question?.sampleInput || "", expected: question?.sampleOutput || "" }];
+      const cases = storedCases.length
+        ? storedCases.map((tc, i) => ({
+            id: i + 1,
+            input: tc.input_data || tc.input || "",
+            expected: tc.expected_output || tc.expected || "",
+          }))
+        : parsedCases.length
+        ? parsedCases
+        : sampleCase;
+
+      const res = await fetch("http://localhost:8000/submit", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1980,30 +1997,42 @@ if (activeTab === "custom" && question?.sampleOutput) {
       setTestResults(data.test_results || []);
     } catch {
       setVerdict("Error");
-      setOutput("Error: could not reach execution server.");
+      setOutput("Error: could not reach execution server at localhost:8000");
     }
     setSubmitting(false);
   };
- 
-  // ── empty state ────────────────────────────────────────────────────────────
+
   if (!question) {
     return (
       <div className="fade-in" style={{ padding: 40, textAlign: "center" }}>
         <div className="section-title">No Coding Questions</div>
         <div className="section-subtitle" style={{ marginTop: 8 }}>
           {activeQuiz
-            ? "This quiz has no coding questions yet. Ask your instructor to add some."
+            ? "This quiz has no coding questions yet."
             : "No quiz found. Please contact your instructor."}
         </div>
       </div>
     );
   }
- 
-  // ── main layout ────────────────────────────────────────────────────────────
+
+  const containerStyle = isFullscreen
+    ? {
+        position: "fixed",
+        top: 0, left: 0, right: 0, bottom: 0,
+        zIndex: 9999,
+        background: "var(--bg)",
+        display: "flex",
+        flexDirection: "column",
+      }
+    : {
+        height: "calc(100vh - 100px)",
+        display: "flex",
+        flexDirection: "column",
+      };
+
   return (
-    <div className="fade-in" style={{ height: "calc(100vh - 100px)", display: "flex", flexDirection: "column" }}>
- 
-      {/* ── Top bar: quiz title + question tabs ── */}
+    <div className="fade-in" style={containerStyle}>
+      {/* Top bar */}
       <div style={{
         padding: "8px 16px",
         background: "var(--bg2)",
@@ -2012,11 +2041,12 @@ if (activeTab === "custom" && question?.sampleOutput) {
         alignItems: "center",
         gap: 10,
         flexWrap: "wrap",
+        flexShrink: 0,
       }}>
         <span style={{ fontWeight: 700, fontSize: 13 }}>
           {activeQuiz?.title || "Quiz"}
         </span>
- 
+
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {codingQuestions.map((q, i) => (
             <button
@@ -2030,21 +2060,41 @@ if (activeTab === "custom" && question?.sampleOutput) {
               }}
             >
               Q{i + 1}
+              {/* Show difficulty badge */}
+              {q.difficulty && (
+                <span style={{
+                  fontSize: 9,
+                  marginLeft: 4,
+                  color: q.difficulty === "hard" ? "var(--red)" : q.difficulty === "easy" ? "var(--green)" : "var(--amber)",
+                }}>
+                  {q.difficulty}
+                </span>
+              )}
             </button>
           ))}
         </div>
- 
+
         <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
-          <span className="badge badge-purple">⏱ {formatTime(timeLeft)}</span>
+          <span className={`badge ${timeLeft < 300 ? "badge-red" : "badge-purple"}`}>
+            ⏱ {formatTime(timeLeft)}
+          </span>
           {warnings > 0 && (
-            <span className="badge badge-red">⚠ {warnings} warning{warnings > 1 ? "s" : ""}</span>
+            <span className="badge badge-red">
+              ⚠ {warnings} warning{warnings > 1 ? "s" : ""}
+            </span>
           )}
+          <button
+            className="btn btn-ghost btn-sm btn-icon"
+            onClick={() => setIsFullscreen((f) => !f)}
+            title={isFullscreen ? "Exit fullscreen (Esc)" : "Fullscreen (F11)"}
+          >
+            <Icon name={isFullscreen ? "x" : "eye"} size={13} />
+          </button>
         </div>
       </div>
- 
-      {/* ── Split pane ── */}
+
+      {/* Split pane */}
       <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
- 
         {/* LEFT – problem statement */}
         <div style={{
           width: `${leftWidth}%`,
@@ -2063,18 +2113,25 @@ if (activeTab === "custom" && question?.sampleOutput) {
           }}>
             <span className="badge badge-blue">{question.topic || "General"}</span>
             <span style={{ fontWeight: 700, fontSize: 14 }}>{question.problemTitle}</span>
-            <span className="badge badge-gray" style={{ marginLeft: "auto" }}>
+            <span
+              className={`badge ${
+                question.difficulty === "hard" ? "badge-red" :
+                question.difficulty === "easy" ? "badge-green" : "badge-amber"
+              }`}
+              style={{ marginLeft: "auto" }}
+            >
+              {question.difficulty || "medium"}
+            </span>
+            <span className="badge badge-gray">
               {question.marks} mark{question.marks !== 1 ? "s" : ""}
             </span>
           </div>
- 
+
           <div style={{ padding: "16px 18px", flex: 1 }}>
-            {/* Description */}
             <div style={{ fontSize: 13, lineHeight: 1.8, color: "var(--text2)", marginBottom: 16 }}>
               {question.problemDescription}
             </div>
- 
-            {/* Optional image */}
+
             {question.imageData && (
               <img
                 src={question.imageData}
@@ -2085,12 +2142,11 @@ if (activeTab === "custom" && question?.sampleOutput) {
                 }}
               />
             )}
- 
-            {/* Constraints */}
+
             {question.constraints && (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: "var(--text3)" }}>
-                  CONSTRAINTS
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Constraints
                 </div>
                 <pre style={{
                   fontSize: 12, background: "var(--bg3)", borderRadius: 8,
@@ -2100,12 +2156,11 @@ if (activeTab === "custom" && question?.sampleOutput) {
                 </pre>
               </div>
             )}
- 
-            {/* Sample I/O */}
+
             {(question.sampleInput || question.sampleOutput) && (
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "var(--text3)" }}>
-                  EXAMPLE
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Example
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                   <div>
@@ -2129,15 +2184,42 @@ if (activeTab === "custom" && question?.sampleOutput) {
                 </div>
               </div>
             )}
+
+            {/* Show visible (non-hidden) test cases from DB */}
+            {question.test_cases && question.test_cases.filter(tc => !tc.is_hidden).length > 0 && (
+              <div>
+                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                  Sample Test Cases
+                </div>
+                {question.test_cases.filter(tc => !tc.is_hidden).map((tc, i) => (
+                  <div key={i} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 3 }}>Case {i + 1}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+                      <pre style={{ fontSize: 12, background: "var(--bg3)", borderRadius: 8, padding: "8px 12px", fontFamily: "var(--mono)", whiteSpace: "pre-wrap" }}>
+                        {tc.input_data}
+                      </pre>
+                      <pre style={{ fontSize: 12, background: "var(--bg3)", borderRadius: 8, padding: "8px 12px", fontFamily: "var(--mono)", whiteSpace: "pre-wrap" }}>
+                        {tc.expected_output}
+                      </pre>
+                    </div>
+                  </div>
+                ))}
+                {question.test_cases.filter(tc => tc.is_hidden).length > 0 && (
+                  <div className="text-xs text-faint" style={{ marginTop: 6 }}>
+                    + {question.test_cases.filter(tc => tc.is_hidden).length} hidden test case(s) used for grading
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
- 
-        {/* RESIZE HANDLE */}
+
+        {/* Resize handle */}
         <div
           onMouseDown={() => { isDragging.current = true; }}
           style={{ width: 5, cursor: "col-resize", background: "var(--border)", flexShrink: 0 }}
         />
- 
+
         {/* RIGHT – editor + output */}
         <div style={{
           width: `${100 - leftWidth}%`,
@@ -2145,7 +2227,6 @@ if (activeTab === "custom" && question?.sampleOutput) {
           flexDirection: "column",
           background: "var(--bg)",
         }}>
- 
           {/* Editor toolbar */}
           <div style={{
             padding: "8px 12px",
@@ -2166,7 +2247,15 @@ if (activeTab === "custom" && question?.sampleOutput) {
               <option value="java">Java 17</option>
               <option value="c">C99</option>
             </select>
- 
+
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={resetCode}
+              title="Reset to starter code"
+            >
+              <Icon name="refresh" size={12} /> Reset
+            </button>
+
             <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
               <button
                 className="btn btn-secondary btn-sm"
@@ -2184,8 +2273,8 @@ if (activeTab === "custom" && question?.sampleOutput) {
               </button>
             </div>
           </div>
- 
-          {/* Monaco editor — uses the global Editor from @monaco-editor/react */}
+
+          {/* Monaco editor */}
           <div style={{ flex: 1, overflow: "hidden" }}>
             {typeof Editor !== "undefined" ? (
               <Editor
@@ -2199,10 +2288,11 @@ if (activeTab === "custom" && question?.sampleOutput) {
                   minimap: { enabled: false },
                   automaticLayout: true,
                   scrollBeyondLastLine: false,
+                  tabSize: lang === "python" ? 4 : 2,
+                  wordWrap: "on",
                 }}
               />
             ) : (
-              /* Fallback plain textarea if Monaco isn't loaded */
               <textarea
                 value={code}
                 onChange={(e) => setCode(e.target.value)}
@@ -2217,7 +2307,7 @@ if (activeTab === "custom" && question?.sampleOutput) {
               />
             )}
           </div>
- 
+
           {/* Output / Test panel */}
           <div style={{
             height: 260,
@@ -2225,6 +2315,7 @@ if (activeTab === "custom" && question?.sampleOutput) {
             background: "var(--bg2)",
             display: "flex",
             flexDirection: "column",
+            flexShrink: 0,
           }}>
             {/* Tabs */}
             <div style={{
@@ -2241,10 +2332,18 @@ if (activeTab === "custom" && question?.sampleOutput) {
                   onClick={() => setActiveTab(tab)}
                   style={{ textTransform: "capitalize" }}
                 >
+                  {tab === "tests" && testResults.length > 0 && (
+                    <span style={{
+                      marginRight: 4,
+                      color: testResults.every(r => r.pass) ? "var(--green)" : "var(--red)",
+                    }}>
+                      {testResults.filter(r => r.pass).length}/{testResults.length}
+                    </span>
+                  )}
                   {tab}
                 </button>
               ))}
- 
+
               {verdict && (
                 <span
                   className={`badge ${
@@ -2258,16 +2357,15 @@ if (activeTab === "custom" && question?.sampleOutput) {
                 </span>
               )}
             </div>
- 
+
             {/* Panel body */}
             <div style={{ flex: 1, overflowY: "auto", padding: 12 }}>
- 
               {activeTab === "output" && (
                 <pre style={{ fontFamily: "var(--mono, monospace)", fontSize: 12, whiteSpace: "pre-wrap" }}>
-                  {output || "Click Run to execute your code against the sample input…"}
+                  {output || "Click ▶ Run to execute against the sample input…"}
                 </pre>
               )}
- 
+
               {activeTab === "tests" && (
                 testResults.length === 0
                   ? <div className="text-sm text-faint">Submit your code to see test results.</div>
@@ -2284,27 +2382,27 @@ if (activeTab === "custom" && question?.sampleOutput) {
                         <span style={{ fontWeight: 600 }}>
                           {r.pass ? "✓" : "✗"} Test Case {r.id}
                         </span>
-                        <span className="text-faint">{r.time || ""}</span>
+                        <span className="text-faint">{r.time ? `${r.time}s` : ""}</span>
                       </div>
                       {!r.pass && (
                         <div style={{ fontFamily: "var(--mono, monospace)", color: "var(--text3)" }}>
                           <div>Expected: <span style={{ color: "var(--green)" }}>{r.expected}</span></div>
-                          <div>Got:      <span style={{ color: "var(--red)"   }}>{r.got}</span></div>
+                          <div>Got:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style={{ color: "var(--red)" }}>{r.got}</span></div>
                         </div>
                       )}
                       {r.error && (
-                        <div style={{ color: "var(--red)", fontFamily: "var(--mono, monospace)", marginTop: 4 }}>
+                        <div style={{ color: "var(--red)", fontFamily: "var(--mono, monospace)", marginTop: 4, whiteSpace: "pre-wrap" }}>
                           {r.error}
                         </div>
                       )}
                     </div>
                   ))
               )}
- 
+
               {activeTab === "custom" && (
                 <div>
                   <div className="text-xs text-faint" style={{ marginBottom: 6 }}>
-                    Custom stdin (used when you click Run):
+                    Custom stdin — used when you click ▶ Run:
                   </div>
                   <textarea
                     className="input"
@@ -2314,9 +2412,16 @@ if (activeTab === "custom" && question?.sampleOutput) {
                     style={{ width: "100%", fontFamily: "var(--mono, monospace)", fontSize: 12, resize: "vertical" }}
                     placeholder="Enter custom input here…"
                   />
+                  <button
+                    className="btn btn-secondary btn-sm"
+                    style={{ marginTop: 8 }}
+                    onClick={runCode}
+                    disabled={running}
+                  >
+                    ▶ Run with custom input
+                  </button>
                 </div>
               )}
- 
             </div>
           </div>
         </div>
@@ -2325,6 +2430,311 @@ if (activeTab === "custom" && question?.sampleOutput) {
   );
 }
 // ─── Quiz Attempt Interface ────────────────────────────────────────────────────
+
+function EmbeddedCodingQuestion({ question, onAnswerChange, savedCode }) {
+  const LANG_ID = { python: 71, cpp: 54, java: 62, c: 50 };
+
+  const STARTER = {
+    python: question?.starterCode || `# Write your solution here\n`,
+    cpp: `#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // write your solution here\n    return 0;\n}`,
+    java: `import java.util.*;\npublic class Main {\n    public static void main(String[] args) {\n        // write your solution here\n    }\n}`,
+    c: `#include <stdio.h>\n\nint main() {\n    // write your solution here\n    return 0;\n}`,
+  };
+
+  const [lang, setLang] = useState("python");
+  const [code, setCode] = useState(savedCode || STARTER["python"]);
+  const [output, setOutput] = useState("");
+  const [running, setRunning] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [verdict, setVerdict] = useState("");
+  const [testResults, setTestResults] = useState([]);
+  const [activeTab, setActiveTab] = useState("output");
+ const [customInput, setCustomInput] = useState("");
+const [customExpected, setCustomExpected] = useState("");
+
+  const handleCodeChange = (val) => {
+    setCode(val || "");
+    onAnswerChange(val || "");
+  };
+
+  const handleLangChange = (newLang) => {
+    setLang(newLang);
+    const newCode = STARTER[newLang];
+    setCode(newCode);
+    onAnswerChange(newCode);
+    setOutput("");
+    setVerdict("");
+    setTestResults([]);
+  };
+
+  const runCode = async () => {
+    if (!code.trim()) { setOutput("No code to run."); return; }
+    setRunning(true);
+    setVerdict("");
+    setOutput("Running…");
+   const stdinToSend = customInput || question?.sampleInput || "";
+setActiveTab("output");
+try {
+  const res = await fetch("http://localhost:8000/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      code,
+      language_id: LANG_ID[lang] || 71,
+      stdin: stdinToSend,
+    }),
+  });
+      const data = await res.json();
+      const rawOutput = data.output || data.error || "No output";
+      setOutput(rawOutput);
+     if (!customInput && question?.sampleOutput) {
+  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
+  setVerdict(norm(rawOutput) === norm(question.sampleOutput) ? "Accepted" : "Wrong Answer");
+} else if (customInput && customExpected) {
+  const norm = (s) => s.split("\n").map(l => l.trim()).filter(l => l).join("\n");
+  setVerdict(norm(rawOutput) === norm(customExpected) ? "Accepted" : "Wrong Answer");
+} else {
+  setVerdict("");
+}
+    } catch (err) {
+  setOutput("Error: " + (err?.message || "could not reach execution server."));
+  setVerdict("Error");
+} 
+    setRunning(false);
+  };
+
+  const submitCode = async () => {
+    if (!code.trim()) { setOutput("No code to submit."); return; }
+    setSubmitting(true);
+    setVerdict("Judging…");
+    setTestResults([]);
+    setActiveTab("tests");
+    try {
+      const storedCases = (question?.test_cases || []).map((tc, i) => ({
+        id: i + 1,
+        input: tc.input_data || tc.input || "",
+        expected: tc.expected_output || tc.expected || "",
+      }));
+      const sampleCase = [{
+        id: 1,
+        input: question?.sampleInput || "",
+        expected: question?.sampleOutput || "",
+      }];
+      const cases = storedCases.length ? storedCases : sampleCase;
+
+      const res = await fetch("http://localhost:8000/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          language_id: LANG_ID[lang] || 71,
+          test_cases: cases,
+          question_id: question?.id,
+        }),
+      });
+      const data = await res.json();
+      setVerdict(data.verdict || "");
+      setTestResults(data.test_results || []);
+    } catch {
+      setVerdict("Error");
+      setOutput("Error: could not reach execution server.");
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-lg)", overflow: "hidden", marginTop: 8 }}>
+
+      {/* Problem info bar */}
+      <div style={{ padding: "10px 14px", background: "var(--bg3)", borderBottom: "1px solid var(--border)", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {question?.problemTitle && (
+          <span style={{ fontWeight: 600, fontSize: 13 }}>{question.problemTitle}</span>
+        )}
+        {question?.topic && <span className="badge badge-blue">{question.topic}</span>}
+        {question?.difficulty && (
+          <span className={`badge ${question.difficulty === "hard" ? "badge-red" : question.difficulty === "easy" ? "badge-green" : "badge-amber"}`}>
+            {question.difficulty}
+          </span>
+        )}
+        {question?.marks && (
+          <span className="badge badge-gray" style={{ marginLeft: "auto" }}>{question.marks} marks</span>
+        )}
+      </div>
+
+      {/* Problem description */}
+      {question?.problemDescription && (
+        <div style={{ padding: "12px 14px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", fontSize: 13, lineHeight: 1.7, color: "var(--text2)" }}>
+          {question.problemDescription}
+        </div>
+      )}
+
+      {/* Constraints */}
+      {question?.constraints && (
+        <div style={{ padding: "8px 14px", background: "var(--bg2)", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Constraints</div>
+          <pre style={{ fontSize: 12, fontFamily: "var(--mono)", margin: 0, color: "var(--text2)", whiteSpace: "pre-wrap" }}>{question.constraints}</pre>
+        </div>
+      )}
+
+      {/* Sample I/O */}
+      {(question?.sampleInput || question?.sampleOutput) && (
+        <div style={{ padding: "8px 14px", background: "var(--bg2)", borderBottom: "1px solid var(--border)" }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--text3)", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Example</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 3 }}>Input</div>
+              <pre style={{ fontSize: 12, background: "var(--bg3)", borderRadius: 6, padding: "6px 10px", fontFamily: "var(--mono)", margin: 0, whiteSpace: "pre-wrap" }}>{question.sampleInput}</pre>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: "var(--text3)", marginBottom: 3 }}>Output</div>
+              <pre style={{ fontSize: 12, background: "var(--bg3)", borderRadius: 6, padding: "6px 10px", fontFamily: "var(--mono)", margin: 0, whiteSpace: "pre-wrap" }}>{question.sampleOutput}</pre>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Editor toolbar */}
+      <div style={{ padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", display: "flex", alignItems: "center", gap: 8 }}>
+        <select
+          className="input"
+          style={{ width: 130, padding: "4px 8px", fontSize: 12 }}
+          value={lang}
+          onChange={(e) => handleLangChange(e.target.value)}
+        >
+          <option value="python">Python 3</option>
+          <option value="cpp">C++ 17</option>
+          <option value="java">Java 17</option>
+          <option value="c">C99</option>
+        </select>
+
+        <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+          <button className="btn btn-secondary btn-sm" onClick={runCode} disabled={running || submitting}>
+            {running ? "Running…" : "▶ Run"}
+          </button>
+          <button className="btn btn-primary btn-sm" onClick={submitCode} disabled={running || submitting}>
+            {submitting ? "Submitting…" : "Submit Code"}
+          </button>
+        </div>
+      </div>
+
+      {/* Monaco editor */}
+      <div style={{ height: 280 }}>
+        {typeof Editor !== "undefined" ? (
+          <Editor
+            height="280px"
+            language={lang === "cpp" ? "cpp" : lang}
+            value={code}
+            onChange={handleCodeChange}
+            theme="vs-dark"
+            options={{
+              fontSize: 13,
+              minimap: { enabled: false },
+              automaticLayout: true,
+              scrollBeyondLastLine: false,
+              tabSize: lang === "python" ? 4 : 2,
+            }}
+          />
+        ) : (
+          <textarea
+            value={code}
+            onChange={(e) => handleCodeChange(e.target.value)}
+            spellCheck={false}
+            style={{ width: "100%", height: "100%", resize: "none", background: "#1e1e1e", color: "#d4d4d4", fontFamily: "var(--mono)", fontSize: 13, border: "none", outline: "none", padding: 16, boxSizing: "border-box" }}
+          />
+        )}
+      </div>
+
+      {/* Output panel */}
+      <div style={{ borderTop: "1px solid var(--border)", background: "var(--bg2)" }}>
+
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 4, padding: "8px 12px", borderBottom: "1px solid var(--border)", alignItems: "center" }}>
+          {["output", "tests", "custom"].map((tab) => (
+            <button
+              key={tab}
+              className={`btn btn-sm ${activeTab === tab ? "btn-primary" : "btn-ghost"}`}
+              onClick={() => setActiveTab(tab)}
+              style={{ textTransform: "capitalize" }}
+            >
+              {tab === "tests" && testResults.length > 0 && (
+                <span style={{ marginRight: 4, color: testResults.every(r => r.pass) ? "var(--green)" : "var(--red)" }}>
+                  {testResults.filter(r => r.pass).length}/{testResults.length}
+                </span>
+              )}
+              {tab}
+            </button>
+          ))}
+          {verdict && (
+            <span className={`badge ${verdict === "Accepted" ? "badge-green" : verdict === "Judging…" ? "badge-purple" : "badge-red"}`} style={{ marginLeft: "auto" }}>
+              {verdict}
+            </span>
+          )}
+        </div>
+
+        {/* Panel content */}
+        <div style={{ padding: 12, minHeight: 100, maxHeight: 180, overflowY: "auto" }}>
+          {activeTab === "output" && (
+            <pre style={{ fontFamily: "var(--mono)", fontSize: 12, whiteSpace: "pre-wrap", margin: 0 }}>
+              {output || "Click ▶ Run to execute against the sample input…"}
+            </pre>
+          )}
+
+          {activeTab === "tests" && (
+            testResults.length === 0
+              ? <div className="text-sm text-faint">Submit your code to see test results.</div>
+              : testResults.map((r) => (
+                <div key={r.id} style={{ background: r.pass ? "rgba(0,200,100,0.08)" : "rgba(255,70,70,0.08)", border: `1px solid ${r.pass ? "rgba(0,200,100,0.3)" : "rgba(255,70,70,0.3)"}`, padding: "10px 12px", borderRadius: 8, marginBottom: 8, fontSize: 12 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600 }}>{r.pass ? "✓" : "✗"} Test Case {r.id}</span>
+                    <span className="text-faint">{r.time ? `${r.time}s` : ""}</span>
+                  </div>
+                  {!r.pass && (
+                    <div style={{ fontFamily: "var(--mono)", color: "var(--text3)" }}>
+                      <div>Expected: <span style={{ color: "var(--green)" }}>{r.expected}</span></div>
+                      <div>Got:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style={{ color: "var(--red)" }}>{r.got}</span></div>
+                    </div>
+                  )}
+                  {r.error && <div style={{ color: "var(--red)", fontFamily: "var(--mono)", marginTop: 4, whiteSpace: "pre-wrap" }}>{r.error}</div>}
+                </div>
+              ))
+          )}
+
+        {activeTab === "custom" && (
+  <div>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+      <div>
+        <div className="text-xs text-faint" style={{ marginBottom: 4 }}>Custom input</div>
+        <textarea
+          className="input"
+          value={customInput}
+          onChange={(e) => setCustomInput(e.target.value)}
+          rows={3}
+          style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12, resize: "vertical" }}
+          placeholder="Enter your input…"
+        />
+      </div>
+      <div>
+        <div className="text-xs text-faint" style={{ marginBottom: 4 }}>Expected output (optional)</div>
+        <textarea
+          className="input"
+          value={customExpected}
+          onChange={(e) => setCustomExpected(e.target.value)}
+          rows={3}
+          style={{ width: "100%", fontFamily: "var(--mono)", fontSize: 12, resize: "vertical" }}
+          placeholder="Enter expected output to check…"
+        />
+      </div>
+    </div>
+    <button className="btn btn-secondary btn-sm" onClick={runCode} disabled={running}>
+      ▶ Run with custom input
+    </button>
+  </div>
+)}
+        </div>
+      </div>
+    </div>
+  );
+}
 function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
   const [current, setCurrent] = useState(0);
   const [answers, setAnswers] = useState({});
@@ -2334,7 +2744,7 @@ function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
   const [violations, setViolations] = useState(0);
   const [submitted, setSubmitted] = useState(false);
 
-  const questions = (quiz?.questionList || []).map((question, index) => ({
+ const questions = (quiz?.questionList || []).map((question, index) => ({
   id: question.id || index,
   text: question.questionText || question.text || "Untitled question",
   type: question.type || "mcq",
@@ -2352,6 +2762,15 @@ function QuizAttempt({quiz, setPage, currentUser, setAttempts}) {
     question.questionImage ||
     question.uploadedImage ||
     null,
+  // coding fields
+  problemTitle: question.problemTitle || "",
+  problemDescription: question.problemDescription || "",
+  constraints: question.constraints || "",
+  sampleInput: question.sampleInput || "",
+  sampleOutput: question.sampleOutput || "",
+  starterCode: question.starterCode || "",
+  difficulty: question.difficulty || "medium",
+  test_cases: question.test_cases || [],
 }));
 if (!quiz) {
   return (
@@ -2401,7 +2820,7 @@ if (questions.length === 0) {
   };
 
   const q = questions[current];
-  console.log("Current question:", q);
+
 
   const calculateScore = () => {
   let score = 0;
@@ -2579,20 +2998,12 @@ if (questions.length === 0) {
           )}
 
           {q.type === "coding" && (
-            <div style={{ background: "var(--bg)", border: "1px solid var(--border)", borderRadius: "var(--radius)", overflow: "hidden" }}>
-              <div style={{ padding: "8px 12px", background: "var(--bg2)", borderBottom: "1px solid var(--border)", display: "flex", gap: 8 }}>
-                <select className="select" style={{ fontSize: 11, padding: "3px 6px" }}>
-                  <option>Python 3</option><option>C++</option><option>Java</option>
-                </select>
-              </div>
-              <textarea
-                style={{ width: "100%", height: 200, background: "transparent", border: "none", color: "var(--text)", fontFamily: "var(--mono)", fontSize: 13, padding: 16, resize: "none", lineHeight: 1.7, outline: "none" }}
-                placeholder="// Write your solution here..."
-                value={answers[current] || ""}
-                onChange={e => setAnswers(a => ({ ...a, [current]: e.target.value }))}
-              />
-            </div>
-          )}
+  <EmbeddedCodingQuestion
+    question={q}
+    onAnswerChange={(code) => setAnswers(a => ({ ...a, [current]: code }))}
+    savedCode={answers[current] || ""}
+  />
+)}
 
           {q.type === "image" && (
   <div>
@@ -3474,6 +3885,10 @@ useEffect(() => {
   if (role === "teacher") fetchUsers();
 }, [authed, role]);
 
+// ─── REPLACEMENT for the fetchQuizzes function in app.jsx ────────────────────
+// Find:  const fetchQuizzes = async () => {
+// Replace the entire function with this:
+
 const fetchQuizzes = async () => {
   try {
     const data = await quizzesAPI.list();
@@ -3482,13 +3897,14 @@ const fetchQuizzes = async () => {
         let questionList = [];
         try {
           const qData = await questionsAPI.list(q.quiz_id);
-          questionList = qData.map(question => ({
+          questionList = qData.map((question) => ({
             ...question,
             id: question.question_id,
             questionText: question.question_text,
             type: question.type,
             marks: question.marks,
             topic: question.topic,
+            difficulty: question.difficulty || "medium",
             imageData: question.image_data ?? null,
             expectedAnswer: question.expected_answer ?? "",
             keywords: question.keywords ?? "",
@@ -3499,12 +3915,17 @@ const fetchQuizzes = async () => {
             sampleInput: question.sample_input ?? "",
             sampleOutput: question.sample_output ?? "",
             starterCode: question.starter_code ?? "",
-            options: question.type === "mcq"
-              ? (question.options || []).map(o => o.option_text)
-              : [],
-            correctOption: question.type === "mcq"
-              ? (question.options || []).findIndex(o => o.is_correct)
-              : undefined,
+            // Pass test_cases through for the coding interface
+            test_cases: question.test_cases ?? [],
+            // MCQ options
+            options:
+              question.type === "mcq"
+                ? (question.options || []).map((o) => o.option_text)
+                : [],
+            correctOption:
+              question.type === "mcq"
+                ? (question.options || []).findIndex((o) => o.is_correct)
+                : undefined,
           }));
         } catch (e) {
           console.error("fetchQuestions for quiz", q.quiz_id, e);
@@ -3514,9 +3935,12 @@ const fetchQuizzes = async () => {
           id: q.quiz_id,
           batchId: q.batch_id ? String(q.batch_id) : "",
           batchName: q.batch_name ?? "",
-          window: q.start_time && q.end_time
-            ? `${new Date(q.start_time).toLocaleDateString()} – ${new Date(q.end_time).toLocaleDateString()}`
-            : "Not scheduled",
+          window:
+            q.start_time && q.end_time
+              ? `${new Date(q.start_time).toLocaleDateString()} – ${new Date(
+                  q.end_time
+                ).toLocaleDateString()}`
+              : "Not scheduled",
           avgScore: q.avg_score ?? 0,
           questions: q.questions ?? 0,
           attempts: q.attempts ?? 0,
@@ -3537,7 +3961,9 @@ const fetchQuizzes = async () => {
       })
     );
     setQuizzes(quizzesWithQuestions);
-  } catch (e) { console.error("fetchQuizzes:", e); }
+  } catch (e) {
+    console.error("fetchQuizzes:", e);
+  }
 };
 const fetchBatches = async () => {
   try {
