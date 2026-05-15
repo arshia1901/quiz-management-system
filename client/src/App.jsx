@@ -10,6 +10,7 @@ import {
 } from "./data/sampleData";
 import { useQuizSecurity } from "./hooks/useQuizSecurity";
 
+// REPLACE WITH:
 import {
   authAPI,
   quizzesAPI,
@@ -18,7 +19,7 @@ import {
   usersAPI,
   setToken,
   violationsAPI,
-   attemptsAPI
+  attemptsAPI,
 } from "./api";
 import Editor from "@monaco-editor/react";
 
@@ -2773,17 +2774,6 @@ const [customExpected, setCustomExpected] = useState("");
     </div>
   );
 }
-// ─────────────────────────────────────────────────────────────────────────────
-// REPLACEMENT for the QuizAttempt function in app.jsx
-//
-// HOW TO USE:
-//   1. Copy useQuizSecurity.js to client/src/hooks/useQuizSecurity.js
-//   2. At the top of app.jsx add:
-//        import { useQuizSecurity } from "./hooks/useQuizSecurity";
-//   3. Replace the entire QuizAttempt function (and its inner state) with
-//      the component below.
-// ─────────────────────────────────────────────────────────────────────────────
-
 function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
   // ── Core quiz state ────────────────────────────────────────────────────────
   const [current, setCurrent]       = useState(0);
@@ -2801,8 +2791,8 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
   const [startLoading, setStartLoading]   = useState(true);
 
   // ── Violation overlay state ────────────────────────────────────────────────
-  const [cheatOverlay, setCheatOverlay]   = useState(null); // { message }
-  const [warningToast, setWarningToast]   = useState(null); // { message }
+  const [cheatOverlay, setCheatOverlay]   = useState(null);
+  const [warningToast, setWarningToast]   = useState(null);
 
   const toastTimerRef = useRef(null);
 
@@ -2885,14 +2875,8 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
     onViolationWarning: handleViolationWarning,
   });
 
-  // Sync local secondsLeft into security hook when attempt loads
-  useEffect(() => {
-    if (secondsLeft > 0) security.timeLeft; // hook owns timeLeft after mount
-  }, [secondsLeft]);
-
   // ── 4. Question navigation with time tracking ─────────────────────────────
   const navigateTo = useCallback(async (nextIndex) => {
-    // Log time on current question
     await security.logQuestionExit(questions[current]?.id);
     setCurrent(nextIndex);
     security.markQuestionEntered();
@@ -2901,13 +2885,11 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
   // ── 5. Submission ─────────────────────────────────────────────────────────
   const doSubmit = useCallback(async (auto = false) => {
     if (submitted) return;
-  if (!auto) security.markSubmitting();  // NEW: mark as voluntary before anything
-  setSubmitted(true);
+    if (!auto) security.markSubmitting();
+    setSubmitted(true);
 
-    // Log time on current question
     await security.logQuestionExit(questions[current]?.id).catch(() => {});
 
-    // Calculate local score for immediate display
     let score = 0, maxScore = 0;
     questions.forEach((q, i) => {
       const marks = Number(q.marks) || 1;
@@ -2937,17 +2919,16 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
       return [attemptRecord, ...prev];
     });
 
-    // Tell server
     if (attemptId) {
       attemptsAPI.submit(attemptId).catch(() => {});
     }
   }, [submitted, answers, questions, quiz, currentUser, attemptId, security, setAttempts, current]);
 
   const handleManualSubmit = async () => {
-  if (!confirm("Submit quiz? You cannot change answers after submitting.")) return;
-  security.markSubmitting();  // tell security hook this is voluntary
-  await doSubmit(false);
-};
+    if (!confirm("Submit quiz? You cannot change answers after submitting.")) return;
+    security.markSubmitting();
+    await doSubmit(false);
+  };
 
   // ── Timer formatting ──────────────────────────────────────────────────────
   const t = security.timeLeft;
@@ -2962,7 +2943,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
     return "q-unattempted";
   };
 
-  // ── Guard: quiz not loaded ────────────────────────────────────────────────
+  // ── Guards ────────────────────────────────────────────────────────────────
   if (!quiz) return (
     <div className="fade-in"><div className="card">
       <div className="section-title mb-2">No quiz selected</div>
@@ -3022,7 +3003,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
   return (
     <div className="fade-in" {...security.containerProps}>
 
-      {/* ── Auto-submit / cheat overlay ── */}
+      {/* Auto-submit / cheat overlay */}
       {cheatOverlay && (
         <div className="cheat-overlay">
           <div className="cheat-box">
@@ -3040,7 +3021,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
         </div>
       )}
 
-      {/* ── Warning toast ── */}
+      {/* Warning toast */}
       {warningToast && (
         <div style={{
           position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)",
@@ -3055,7 +3036,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 260px", gap: 16 }}>
 
-        {/* ── Question Panel ── */}
+        {/* Question Panel */}
         <div style={{
           background: "var(--bg2)", border: "1px solid var(--border)",
           borderRadius: "var(--radius-lg)", padding: 24, minHeight: 400,
@@ -3074,19 +3055,16 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
             </button>
           </div>
 
-          {/* Question text */}
           <div style={{ fontFamily: "var(--serif)", fontSize: 18, color: "var(--text)", marginBottom: 24, lineHeight: 1.6 }}>
             {q.text}
           </div>
 
-          {/* Image */}
           {q.image && (
             <div style={{ background: "var(--bg3)", border: "1px solid var(--border)", borderRadius: "var(--radius)", padding: 12, marginBottom: 16 }}>
               <img src={q.image} alt="Question reference" style={{ width: "100%", maxHeight: 260, objectFit: "contain", borderRadius: 10, display: "block" }} />
             </div>
           )}
 
-          {/* MCQ */}
           {q.type === "mcq" && q.opts.map((opt, i) => (
             <div key={i}
               className={`option-card ${answers[current] === i ? "selected" : ""}`}
@@ -3097,7 +3075,6 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
             </div>
           ))}
 
-          {/* Short answer */}
           {q.type === "short" && (
             <textarea
               className="input"
@@ -3108,7 +3085,6 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
             />
           )}
 
-          {/* Coding */}
           {q.type === "coding" && (
             <EmbeddedCodingQuestion
               question={q}
@@ -3117,7 +3093,6 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
             />
           )}
 
-          {/* Image question */}
           {q.type === "image" && (
             <div>
               {q.image ? (
@@ -3135,7 +3110,6 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
             </div>
           )}
 
-          {/* Navigation */}
           <div className="flex items-center justify-between mt-6">
             <button className="btn btn-secondary" disabled={current === 0}
               onClick={() => navigateTo(current - 1)}>← Previous</button>
@@ -3147,7 +3121,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
           </div>
         </div>
 
-        {/* ── Side panel ── */}
+        {/* Side panel */}
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
           {/* Timer */}
@@ -3220,6 +3194,7 @@ function QuizAttempt({ quiz, setPage, currentUser, setAttempts }) {
   );
 }
 
+  
 // ─── AI Generator ──────────────────────────────────────────────────────────────
 function AIGenerator() {
   const [prompt, setPrompt] = useState("");
@@ -4208,7 +4183,11 @@ useEffect(() => {
   const storedToken = localStorage.getItem("examify_token");
   if (storedUser && storedToken) {
     const user = JSON.parse(storedUser);
-    const normalized = { ...user, batchId: user.batchId ?? user.batch_id ?? null };
+    const normalized = {
+  ...user,
+  id: user.id ?? user.user_id ?? null,
+  batchId: user.batchId ?? user.batch_id ?? null,
+};
     setCurrentUser(normalized);
     setRole(normalized.role.toLowerCase());
     setAuthed(true);
@@ -4220,7 +4199,12 @@ useEffect(() => {
   if (!authed) return;
   fetchQuizzes();
   fetchBatches();
-  if (role === "teacher") fetchUsers();
+
+  if (role === "teacher") {
+    fetchUsers();
+  }
+
+  fetchAttempts();
 }, [authed, role]);
 
 // ─── REPLACEMENT for the fetchQuizzes function in app.jsx ────────────────────
@@ -4257,13 +4241,17 @@ const fetchQuizzes = async () => {
             test_cases: question.test_cases ?? [],
             // MCQ options
             options:
-              question.type === "mcq"
-                ? (question.options || []).map((o) => o.option_text)
-                : [],
-            correctOption:
-              question.type === "mcq"
-                ? (question.options || []).findIndex((o) => o.is_correct)
-                : undefined,
+  question.type === "mcq"
+    ? (question.options || []).map((o) => o.option_text)
+    : [],
+optionIds:
+  question.type === "mcq"
+    ? (question.options || []).map((o) => o.option_id)
+    : [],
+correctOption:
+  question.type === "mcq"
+    ? (question.options || []).findIndex((o) => o.is_correct)
+    : undefined,
           }));
         } catch (e) {
           console.error("fetchQuestions for quiz", q.quiz_id, e);
@@ -4325,6 +4313,23 @@ const fetchUsers = async () => {
       batchId: u.batch_id ?? null,
     })));
   } catch (e) { console.error("fetchUsers:", e); }
+};
+
+const fetchAttempts = async () => {
+  try {
+    if (!currentUser?.role) return;
+
+    const roleValue = currentUser.role.toLowerCase();
+
+    const data =
+      roleValue === "teacher"
+        ? await attemptsAPI.listTeacher()
+        : await attemptsAPI.listMine();
+
+    setAttempts(data);
+  } catch (e) {
+    console.error("fetchAttempts:", e);
+  }
 };
 
   const handleLogin = (user) => {
@@ -4406,10 +4411,12 @@ const fetchUsers = async () => {
             (q) => q.status === "live" && q.batchId === currentUser?.batchId
           )
           .map((q) => {
-            const existingAttempt = attempts.find(
-              (attempt) =>
-                attempt.quizId === q.id && attempt.studentId === currentUser?.id
-            );
+            const currentStudentId = currentUser?.id || currentUser?.user_id;
+
+const existingAttempt = attempts.find(
+  (attempt) =>
+    attempt.quizId === q.id && attempt.studentId === currentStudentId
+);
             return (
             <div key={q.id} className="quiz-card mb-3">
               <div className="quiz-card-header">

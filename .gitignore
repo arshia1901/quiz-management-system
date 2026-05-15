@@ -2,16 +2,38 @@
 node_modules/
 client/node_modules/
 server/node_modules/
+mobile/node_modules/
+
+# Python virtual environment
+server/venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
 
 # environment files
 .env
 client/.env
 server/.env
+mobile/.env
 
 # build output
 dist/
 client/dist/
 server/dist/
+
+# Expo / React Native
+mobile/.expo/
+mobile/dist/
+mobile/android/
+mobile/ios/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
+web-build/
 
 # macOS
 .DS_Store

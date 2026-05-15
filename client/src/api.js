@@ -1,4 +1,4 @@
-// client/src/utils/api.js
+// client/src/api.js
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
@@ -75,7 +75,16 @@ export const questionsAPI = {
 };
 
 // ─── Attempts ────────────────────────────────────────────────────────────────
+// REPLACE WITH:
 export const attemptsAPI = {
+  /** Student: list own past attempts */
+  listMine: () =>
+    api.get("/api/student/attempts"),
+
+  /** Teacher: list all attempts for quizzes they created */
+  listTeacher: () =>
+    api.get("/api/teacher/attempts"),
+
   /**
    * Start or resume an attempt.
    * Returns { attempt_id, resumed, seconds_left, server_deadline, settings }
@@ -84,7 +93,7 @@ export const attemptsAPI = {
     api.post(`/api/quizzes/${quiz_id}/attempt/start`, {}),
 
   /**
-   * Poll this every ~10 s to get authoritative time remaining.
+   * Poll every ~10 s to get authoritative time remaining.
    * Returns { status, seconds_left, auto_submitted? }
    */
   syncTimer: (attempt_id) =>
@@ -112,7 +121,7 @@ export const attemptsAPI = {
     api.post(`/api/attempts/${attempt_id}/question-time`, { question_id, time_spent_ms }),
 };
 
-// ─── Violation review (teacher) ───────────────────────────────────────────────
+// ─── Violation review (teacher) ──────────────────────────────────────────────
 export const violationsAPI = {
   /** All violations for a quiz, grouped by student */
   forQuiz:    (quiz_id)    => api.get(`/api/quizzes/${quiz_id}/violations`),
